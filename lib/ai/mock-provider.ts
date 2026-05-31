@@ -27,16 +27,19 @@ function buildSpeech(input: GenerateTextInput) {
   const topic = textMeta(input, "topic", "当前辩题");
   const stance = textMeta(input, "stance", side === "A" ? "甲方立场" : "乙方立场");
   const opponent = textMeta(input, "opponentStance", "对方立场");
+  const personaName = textMeta(input, "personaName", "");
+  const mode = textMeta(input, "mode", "free");
   const seed = hashText(`${topic}:${stance}:${round}:${side}`);
   const evidenceTone = seed % 2 === 0 ? "现实激励" : "二阶影响";
   const pressurePoint = seed % 3 === 0 ? "概念边界" : seed % 3 === 1 ? "代价权衡" : "举证责任";
 
   return [
-    `${stance}。第 ${round} 轮，本方把“${topic}”放在${pressurePoint}上审视，因为胜负取决于哪一种后果更应被优先看见。`,
+    `${personaName ? `${personaName}会先说：` : ""}${stance}。第 ${round} 轮，本方把“${topic}”放在${pressurePoint}上审视，因为胜负取决于哪一种后果更应被优先看见。`,
     `核心论证是：${evidenceTone}会持续影响制度与普通决策者，判断标准不能停留在口号，而应落到可观察结果。`,
     `针对“${opponent}”，对方目前缺少因果优先级：提出了担忧，但尚未证明该担忧足以压倒本方主张。`,
+    mode === "research" ? "本轮只把资料包能支撑的内容当成事实，其余判断明确作为推断处理。" : "",
     `下一轮请裁判重点比较机制完整度、证据质量，以及反驳是否真正击中对方最强论点。`,
-  ].join(" ");
+  ].filter(Boolean).join(" ");
 }
 
 function scoreFromSeed(seed: number, bias: number): ScoreBreakdown {

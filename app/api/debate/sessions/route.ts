@@ -1,4 +1,5 @@
-import { createDebateSession, ensureDemoUser, sessionInclude } from "@/lib/debate/engine";
+import { getCurrentUser } from "@/lib/auth/session";
+import { createDebateSession, sessionInclude } from "@/lib/debate/engine";
 import { serializeSession } from "@/lib/debate/serializers";
 import { prisma } from "@/lib/db/prisma";
 import { errorResponse } from "@/lib/errors";
@@ -12,7 +13,7 @@ export async function GET(request: Request) {
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await ensureDemoUser();
+    const user = await getCurrentUser();
     const sessions = await prisma.debateSession.findMany({
       where: { userId: user.id },
       orderBy: { updatedAt: "desc" },
@@ -36,7 +37,8 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const session = await createDebateSession(body);
+    const user = await getCurrentUser();
+    const session = await createDebateSession(body, user.id);
     return Response.json({ session }, { status: 201 });
   } catch (error) {
     return errorResponse(error, "创建辩论场失败。");

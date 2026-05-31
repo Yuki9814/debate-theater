@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Database, HardDrive, Info, KeyRound, Plus, ShieldCheck } from "lucide-react";
+import { Database, HardDrive, Info, KeyRound, Plus, ShieldCheck, Trash2, Wifi } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
@@ -26,9 +26,11 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
     defaultModel: "gpt-4.1-mini",
   });
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   function submit() {
     setError(null);
+    setMessage(null);
     startTransition(async () => {
       const response = await fetch("/api/providers", {
         method: "POST",
@@ -44,6 +46,54 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
 
       setProviders((current) => [payload.provider as ProviderView, ...current]);
       setForm((current) => ({ ...current, apiKey: "" }));
+      setMessage("接入器已保存，可在开题页分别挂载到甲乙和裁判席。");
+    });
+  }
+
+  function patchProvider(providerId: string, body: Partial<ProviderView>) {
+    setError(null);
+    setMessage(null);
+    startTransition(async () => {
+      const response = await fetch(`/api/providers/${providerId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = (await response.json()) as { provider?: ProviderView; error?: string };
+      if (!response.ok || !payload.provider) {
+        setError(payload.error ?? "更新接入器失败。");
+        return;
+      }
+      setProviders((current) => current.map((provider) => (provider.id === providerId ? payload.provider as ProviderView : provider)));
+    });
+  }
+
+  function deleteProvider(providerId: string) {
+    setError(null);
+    setMessage(null);
+    startTransition(async () => {
+      const response = await fetch(`/api/providers/${providerId}`, { method: "DELETE" });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setError(payload.error ?? "删除接入器失败。");
+        return;
+      }
+      setProviders((current) => current.filter((provider) => provider.id !== providerId));
+      setMessage("接入器已删除。");
+    });
+  }
+
+  function testProvider(providerId: string) {
+    setError(null);
+    setMessage(null);
+    startTransition(async () => {
+      const response = await fetch(`/api/providers/${providerId}/test`, { method: "POST" });
+      const payload = (await response.json()) as { message?: string; error?: string };
+      if (!response.ok) {
+        setError(payload.error ?? payload.message ?? "测试失败。");
+        return;
+      }
+      setMessage(payload.message ?? "接入器测试通过。");
     });
   }
 
@@ -110,6 +160,7 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
           </label>
 
           {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]">{error}</p> : null}
+          {message ? <p className="rounded-md bg-[var(--jade-soft)] p-3 text-sm text-[var(--jade)]">{message}</p> : null}
 
           <Button className="w-full" disabled={isPending} onClick={submit} size="lg">
             <Plus className="h-4 w-4" />
@@ -166,6 +217,24 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
                   <div className="mt-3 grid gap-2 text-xs text-[var(--muted)] sm:grid-cols-2">
                     <span>模型：{provider.defaultModel ?? "--"}</span>
                     <span>密钥：{provider.keyPreview ?? (provider.hasApiKey ? "••••••••" : "未挂载")}</span>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button disabled={isPending} onClick={() => testProvider(provider.id)} size="sm" variant="secondary">
+                      <Wifi className="h-3.5 w-3.5" />
+                      测试
+                    </Button>
+                    <Button
+                      disabled={isPending}
+                      onClick={() => patchProvider(provider.id, { enabled: !provider.enabled })}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      {provider.enabled ? "停用" : "启用"}
+                    </Button>
+                    <Button disabled={isPending} onClick={() => deleteProvider(provider.id)} size="sm" variant="danger">
+                      <Trash2 className="h-3.5 w-3.5" />
+                      删除
+                    </Button>
                   </div>
                 </article>
               ))}

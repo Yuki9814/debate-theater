@@ -1,3 +1,4 @@
+import { getCurrentUser } from "@/lib/auth/session";
 import { runNextRound, updateSessionStatus } from "@/lib/debate/engine";
 import { errorResponse } from "@/lib/errors";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
@@ -15,8 +16,9 @@ export async function POST(_request: Request, context: RouteContext) {
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    await updateSessionStatus({ sessionId, status: "running" });
-    const session = await runNextRound(sessionId);
+    const user = await getCurrentUser();
+    await updateSessionStatus({ sessionId, userId: user.id, status: "running" });
+    const session = await runNextRound(sessionId, user.id);
     return Response.json({ session });
   } catch (error) {
     return errorResponse(error, "生成下一轮失败。");

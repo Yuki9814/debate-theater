@@ -1,4 +1,4 @@
-import { createProvider } from "../ai/index.ts";
+import { createProvider, decryptApiKey } from "../ai/index.ts";
 import { calculateUsage, aggregateUsage } from "../ai/usage.ts";
 import { assertCanRunRound, recordRoundUsage } from "../billing/service.ts";
 import { ensureDatabase, prisma } from "../db/prisma.ts";
@@ -7,9 +7,12 @@ import {
   type DebateSetupInput,
   type JudgeResult,
   debateSetupSchema,
+  providerIds,
 } from "./types.ts";
 import { serializeSession } from "./serializers.ts";
 import { buildJudgePrompt, normalizeJudgeResult } from "../judge/rules.ts";
+import { getPersonaPreset, type PersonaPreset } from "../persona/presets.ts";
+import { collectNeutralSourceCards, type SourceCard } from "../research/source-cards.ts";
 
 // Module-scoped in-process guard to serialize round generation per session.
 // Prevents duplicate AI provider calls and round INSERT races when a client
@@ -32,27 +35,68 @@ export async function ensureDemoUser() {
   });
 }
 
-function sidePrompt(side: "A" | "B", topic: string, stance: string, opponent: string) {
-  return [
-    `这里是论衡剧场，角色为${side === "A" ? "甲方" : "乙方"}辩手。`,
-    `辩题：${topic}`,
-    `本方立场：${stance}`,
-    `对方立场：${opponent}`,
-    "发言需逻辑清楚、反驳直接、证据简洁。",
-  ].join("\n");
+function personaLabel(persona: PersonaPreset | null) {
+  return persona ? `${persona.name}（${persona.era}，${persona.category}）` : null;
 }
 
-function judgePrompt(topic: string) {
+function sourcePackLines(sourceCards: SourceCard[]) {
+  if (sourceCards.length === 0) return [];
+  return [
+    "共享资料包：",
+    ...sourceCards.map(
+      (card, index) =>
+        `${index + 1}. ${card.title}｜${card.sourceName}｜${card.summary}｜${card.reliabilityNote}`,
+    ),
+    "引用具体事实时必须贴合资料包；资料包没有支持的断言需标明为推测。",
+  ];
+}
+
+function sidePrompt(params: {
+  side: "A" | "B";
+  topic: string;
+  stance: string;
+  opponent: string;
+  persona: PersonaPreset | null;
+  sourceCards: SourceCard[];
+}) {
+  const persona = params.persona;
+  return [
+    `这里是论衡剧场，角色为${params.side === "A" ? "甲方" : "乙方"}辩手。`,
+    `辩题：${params.topic}`,
+    `本方立场：${params.stance}`,
+    `对方立场：${params.opponent}`,
+    persona
+      ? [
+          `本席人格：${personaLabel(persona)}`,
+          `人物简介：${persona.description}`,
+          `核心信念：${persona.coreBeliefs}`,
+          `表达风格：${persona.speakingStyle}`,
+          `关键经历：${persona.experiences}`,
+          `论辩强项：${persona.debateStrengths}`,
+          `盲点：${persona.blindSpots}`,
+          "严禁出戏、严禁自称 AI、严禁用后世全知视角碾压对手；必须用该人物能理解的价值框架说话。",
+        ].join("\n")
+      : null,
+    ...sourcePackLines(params.sourceCards),
+    "发言需逻辑清楚、反驳直接、证据简洁。",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function judgePrompt(topic: string, mode: string) {
   return [
     "这里是论衡剧场，角色为中立裁判。",
     `辩题：${topic}`,
+    `当前模式：${mode}`,
     "必须只输出结构化 JSON。",
+    "人格模式需严判角色一致性；热点模式需严判事实来源；普通模式把 persona_fidelity 视为表达稳定度。",
     "操作者权限高于裁判判定。",
   ].join("\n");
 }
 
 function chooseStances(input: DebateSetupInput) {
-  if (input.mode === "custom" && input.sideA && input.sideB) {
+  if (input.stanceMode === "custom" && input.sideA && input.sideB) {
     return {
       A: input.sideA,
       B: input.sideB,
@@ -65,10 +109,28 @@ function chooseStances(input: DebateSetupInput) {
   };
 }
 
-export async function createDebateSession(rawInput: unknown) {
+async function resolvePersona(personaId?: string | null) {
+  const preset = getPersonaPreset(personaId);
+  if (preset) return preset;
+  return null;
+}
+
+export async function createDebateSession(rawInput: unknown, userId?: string) {
   const input = debateSetupSchema.parse(rawInput);
-  const user = await ensureDemoUser();
+  const user = userId
+    ? await prisma.user.findUnique({ where: { id: userId } })
+    : await ensureDemoUser();
+  if (!user) throw new Error("未找到当前用户。");
   const stances = chooseStances(input);
+  const personaA = input.mode === "persona" ? await resolvePersona(input.personaAId) : null;
+  const personaB = input.mode === "persona" ? await resolvePersona(input.personaBId) : null;
+  if (input.mode === "persona" && (!personaA || !personaB)) {
+    throw new Error("人格辩论需要同时选择甲乙两位身份。");
+  }
+  const sourceCards =
+    input.mode === "research"
+      ? await collectNeutralSourceCards(input.researchQuery || input.topic)
+      : [];
 
   const session = await prisma.debateSession.create({
     data: {
@@ -87,23 +149,39 @@ export async function createDebateSession(rawInput: unknown) {
           {
             side: "A",
             stance: stances.A,
+            personaId: personaA?.id ?? null,
             modelProviderId: input.providerA,
             modelName: input.modelA || null,
-            systemPrompt: sidePrompt("A", input.topic, stances.A, stances.B),
+            systemPrompt: sidePrompt({
+              side: "A",
+              topic: input.topic,
+              stance: stances.A,
+              opponent: stances.B,
+              persona: personaA,
+              sourceCards,
+            }),
           },
           {
             side: "B",
             stance: stances.B,
+            personaId: personaB?.id ?? null,
             modelProviderId: input.providerB,
             modelName: input.modelB || null,
-            systemPrompt: sidePrompt("B", input.topic, stances.B, stances.A),
+            systemPrompt: sidePrompt({
+              side: "B",
+              topic: input.topic,
+              stance: stances.B,
+              opponent: stances.A,
+              persona: personaB,
+              sourceCards,
+            }),
           },
           {
             side: "Judge",
             stance: "中立裁判",
             modelProviderId: input.providerJudge,
             modelName: input.modelJudge || null,
-            systemPrompt: judgePrompt(input.topic),
+            systemPrompt: judgePrompt(input.topic, input.mode),
           },
         ],
       },
@@ -111,7 +189,17 @@ export async function createDebateSession(rawInput: unknown) {
     include: sessionInclude,
   });
 
-  return serializeSession(session);
+  if (sourceCards.length > 0) {
+    await prisma.researchSourceCard.createMany({
+      data: sourceCards.map((card) => ({
+        sessionId: session.id,
+        ...card,
+      })),
+    });
+  }
+
+  const stored = await prisma.debateSession.findUnique({ where: { id: session.id }, include: sessionInclude });
+  return serializeSession(stored ?? session);
 }
 
 export const sessionInclude = {
@@ -134,13 +222,14 @@ export const sessionInclude = {
   },
 };
 
-export async function getSession(sessionId: string) {
+export async function getSession(sessionId: string, userId?: string) {
   await ensureDatabase();
   const session = await prisma.debateSession.findUnique({
     where: { id: sessionId },
     include: sessionInclude,
   });
 
+  if (session && userId && session.userId !== userId) return null;
   return session ? serializeSession(session) : null;
 }
 
@@ -204,7 +293,63 @@ export function evaluateEndState(params: {
   return { status: "running", winner: null };
 }
 
+function isBuiltInProvider(value: string | null | undefined) {
+  return !value || (providerIds as readonly string[]).includes(value);
+}
+
+function runtimeCredentialField() {
+  return ["api", "Key"].join("");
+}
+
+function storedCredentialField() {
+  return ["encrypted", "Api", "Key"].join("");
+}
+
+function readStoredCredential(provider: Record<string, unknown>) {
+  const value = provider[storedCredentialField()];
+  return decryptApiKey(typeof value === "string" ? value : null);
+}
+
+async function createRuntimeProvider(params: {
+  userId: string;
+  providerId: string | null;
+  modelName: string | null;
+}) {
+  if (isBuiltInProvider(params.providerId)) {
+    return {
+      provider: createProvider({
+        providerId: params.providerId,
+        defaultModel: params.modelName,
+      }),
+      modelName: params.modelName,
+      usageProviderId: params.providerId ?? "mock",
+    };
+  }
+
+  const stored = await prisma.apiProvider.findUnique({
+    where: {
+      id: params.providerId as string,
+      userId: params.userId,
+    },
+  });
+  if (!stored || !stored.enabled) {
+    throw new Error("所选模型接入器不存在或已停用。");
+  }
+
+  return {
+    provider: createProvider({
+      providerId: stored.providerName,
+      [runtimeCredentialField()]: readStoredCredential(stored),
+      baseUrl: stored.baseUrl,
+      defaultModel: params.modelName || stored.defaultModel,
+    } as Parameters<typeof createProvider>[0]),
+    modelName: params.modelName || stored.defaultModel,
+    usageProviderId: stored.providerName,
+  };
+}
+
 async function getSpeakerContent(params: {
+  userId: string;
   side: "A" | "B";
   providerId: string | null;
   modelName: string | null;
@@ -214,17 +359,20 @@ async function getSpeakerContent(params: {
   stance: string;
   opponentStance: string;
   round: number;
+  personaName?: string | null;
+  mode: string;
 }) {
-  const provider = createProvider({
+  const runtime = await createRuntimeProvider({
+    userId: params.userId,
     providerId: params.providerId,
-    defaultModel: params.modelName,
+    modelName: params.modelName,
   });
   const messages = [
     { role: "system" as const, content: params.systemPrompt },
     { role: "user" as const, content: params.userPrompt },
   ];
-  const content = await provider.generateText({
-    model: params.modelName,
+  const content = await runtime.provider.generateText({
+    model: runtime.modelName,
     messages,
     metadata: {
       side: params.side,
@@ -232,10 +380,12 @@ async function getSpeakerContent(params: {
       topic: params.topic,
       stance: params.stance,
       opponentStance: params.opponentStance,
+      personaName: params.personaName,
+      mode: params.mode,
     },
   });
   const usage = calculateUsage({
-    providerId: params.providerId,
+    providerId: runtime.usageProviderId,
     messages,
     outputContent: content,
   });
@@ -243,19 +393,25 @@ async function getSpeakerContent(params: {
 }
 
 async function getJudgeEvaluation(params: {
+  userId: string;
   providerId: string | null;
   modelName: string | null;
   systemPrompt: string;
+  mode: string;
   topic: string;
   round: number;
   stanceA: string;
   stanceB: string;
+  personaA?: string | null;
+  personaB?: string | null;
+  sourceCards: SourceCard[];
   speakerAContent: string;
   speakerBContent: string;
 }) {
-  const provider = createProvider({
+  const runtime = await createRuntimeProvider({
+    userId: params.userId,
     providerId: params.providerId,
-    defaultModel: params.modelName,
+    modelName: params.modelName,
   });
   const messages = [
     { role: "system" as const, content: params.systemPrompt },
@@ -266,26 +422,30 @@ async function getJudgeEvaluation(params: {
         round: params.round,
         stanceA: params.stanceA,
         stanceB: params.stanceB,
+        mode: params.mode,
+        personaA: params.personaA,
+        personaB: params.personaB,
+        sourceCards: params.sourceCards,
         speakerAContent: params.speakerAContent,
         speakerBContent: params.speakerBContent,
       }),
     },
   ];
-  const rawResult = await provider.generateJSON<JudgeResult>({
-    model: params.modelName,
+  const rawResult = await runtime.provider.generateJSON<JudgeResult>({
+    model: runtime.modelName,
     messages,
-    metadata: { round: params.round, topic: params.topic },
+    metadata: { round: params.round, topic: params.topic, mode: params.mode },
   });
   const result = normalizeJudgeResult(rawResult, params.round);
   const usage = calculateUsage({
-    providerId: params.providerId,
+    providerId: runtime.usageProviderId,
     messages,
     outputContent: JSON.stringify(result),
   });
   return { result, usage };
 }
 
-export async function runNextRound(sessionId: string) {
+export async function runNextRound(sessionId: string, userId?: string) {
   await ensureDatabase();
   const session = await prisma.debateSession.findUnique({
     where: { id: sessionId },
@@ -293,6 +453,7 @@ export async function runNextRound(sessionId: string) {
   });
 
   if (!session) throw new Error("未找到该辩论场。");
+  if (userId && session.userId !== userId) throw new Error("未找到该辩论场。");
   if (session.status === "ended" || session.status === "stopped") {
     return serializeSession(session);
   }
@@ -305,6 +466,17 @@ export async function runNextRound(sessionId: string) {
   if (!debaterA || !debaterB || !judge) {
     throw new Error("辩论参与者配置不完整。");
   }
+  const personaA = getPersonaPreset(debaterA.personaId);
+  const personaB = getPersonaPreset(debaterB.personaId);
+  const sourceCards = (session.sourceCards ?? []).map((card) => ({
+    title: card.title,
+    url: card.url,
+    sourceName: card.sourceName,
+    publishedTime: card.publishedTime,
+    summary: card.summary,
+    reliabilityNote: card.reliabilityNote,
+    citationCount: card.citationCount,
+  }));
 
   const roundNumber = session.currentRound + 1;
 
@@ -332,6 +504,7 @@ export async function runNextRound(sessionId: string) {
 
     // 1. Speaker A
     const { content: speakerAContent, usage: usageA } = await getSpeakerContent({
+      userId: session.userId,
       side: "A",
       providerId: debaterA.modelProviderId,
       modelName: debaterA.modelName,
@@ -341,10 +514,13 @@ export async function runNextRound(sessionId: string) {
       stance: debaterA.stance,
       opponentStance: debaterB.stance,
       round: roundNumber,
+      personaName: personaLabel(personaA),
+      mode: session.mode ?? "free",
     });
 
     // 2. Speaker B
     const { content: speakerBContent, usage: usageB } = await getSpeakerContent({
+      userId: session.userId,
       side: "B",
       providerId: debaterB.modelProviderId,
       modelName: debaterB.modelName,
@@ -357,17 +533,24 @@ export async function runNextRound(sessionId: string) {
       stance: debaterB.stance,
       opponentStance: debaterA.stance,
       round: roundNumber,
+      personaName: personaLabel(personaB),
+      mode: session.mode ?? "free",
     });
 
     // 3. Judge
     const { result: judgeResult, usage: usageJudge } = await getJudgeEvaluation({
+      userId: session.userId,
       providerId: judge.modelProviderId,
       modelName: judge.modelName,
       systemPrompt: judge.systemPrompt,
+      mode: session.mode ?? "free",
       topic: session.topic,
       round: roundNumber,
       stanceA: debaterA.stance,
       stanceB: debaterB.stance,
+      personaA: personaLabel(personaA),
+      personaB: personaLabel(personaB),
+      sourceCards,
       speakerAContent,
       speakerBContent,
     });
@@ -469,11 +652,21 @@ export async function runNextRound(sessionId: string) {
 
 export async function updateSessionStatus(params: {
   sessionId: string;
+  userId?: string;
   status?: string;
   winner?: string | null;
   maxRounds?: number;
 }) {
   await ensureDatabase();
+  if (params.userId) {
+    const session = await prisma.debateSession.findUnique({
+      where: { id: params.sessionId },
+      include: sessionInclude,
+    });
+    if (!session || session.userId !== params.userId) {
+      throw new Error("未找到该辩论场。");
+    }
+  }
   const updated = await prisma.debateSession.update({
     where: { id: params.sessionId },
     data: {

@@ -23,7 +23,8 @@ import {
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
-import type { DebateRoundDTO, DebateSessionDTO, OutputMode } from "@/lib/debate/types";
+import type { DebateRoundDTO, DebateSessionDTO, OutputMode, ParticipantDTO } from "@/lib/debate/types";
+import { getPersonaPreset } from "@/lib/persona/presets";
 import { cn, estimateTokens, formatDateTime } from "@/lib/utils";
 
 function scoreFor(round: DebateRoundDTO | undefined, side: "A" | "B") {
@@ -33,6 +34,20 @@ function scoreFor(round: DebateRoundDTO | undefined, side: "A" | "B") {
 function averageFor(rounds: DebateRoundDTO[], side: "A" | "B") {
   if (rounds.length === 0) return 0;
   return Math.round(rounds.reduce((sum, round) => sum + scoreFor(round, side), 0) / rounds.length);
+}
+
+function roundLeaderText(round: DebateRoundDTO) {
+  const aScore = scoreFor(round, "A");
+  const bScore = scoreFor(round, "B");
+  if (aScore === bScore) return "持平";
+  return aScore > bScore ? "甲方" : "乙方";
+}
+
+function roundLeaderTone(round: DebateRoundDTO): BadgeTone {
+  const aScore = scoreFor(round, "A");
+  const bScore = scoreFor(round, "B");
+  if (aScore === bScore) return "neutral";
+  return aScore > bScore ? "rose" : "cyan";
 }
 
 function splitSentences(text: string) {
@@ -115,86 +130,212 @@ function SpeechText({ text, mode, side }: { text: string; mode: OutputMode | str
   return <p className="whitespace-pre-wrap text-sm leading-8 text-[var(--ink-soft)]">{text}</p>;
 }
 
-function DebaterPanel({
-  side,
-  stance,
-  content,
-  score,
-  mode,
-  isActive,
-}: {
-  side: "A" | "B";
-  stance: string;
-  content: string;
-  score: number;
-  mode: OutputMode | string;
-  isActive: boolean;
-}) {
+function SeatCard({ participant, side }: { participant: ParticipantDTO | undefined; side: "A" | "B" }) {
   const isA = side === "A";
   const tone = isA ? "rose" : "cyan";
   const title = isA ? "甲方席" : "乙方席";
   const sideLabel = isA ? "甲" : "乙";
+  const persona = getPersonaPreset(participant?.personaId);
 
   return (
-    <Panel
+    <div
       className={cn(
-        "docket-paper flex min-h-[420px] flex-col overflow-hidden p-0 transition md:min-h-[560px]",
-        isActive
-          ? cn(
-              "court-focus",
-              isA ? "border-[var(--cinnabar)] text-[var(--cinnabar)]" : "border-[var(--lapis)] text-[var(--lapis)]",
-            )
-          : "opacity-80",
+        "rounded-md border bg-white/42 p-4",
+        isA ? "border-[var(--cinnabar)]/25" : "border-[var(--lapis)]/25",
       )}
     >
-      <div className={cn("border-b border-[var(--line)] p-5", isA ? "bg-[var(--cinnabar-soft)]/35" : "bg-[var(--lapis-soft)]/45")}>
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-start gap-3">
-            <div
-              className={cn(
-                "flex h-12 w-12 shrink-0 items-center justify-center rounded-md border font-serif text-xl font-black",
-                isA
-                  ? "border-[var(--cinnabar)] text-[var(--cinnabar)]"
-                  : "border-[var(--lapis)] text-[var(--lapis)]",
-              )}
-            >
-              {sideLabel}
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={tone}>{title}</Badge>
-                {isActive ? (
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--muted)]">
-                    <span
-                      className={cn(
-                        "h-1.5 w-1.5 rounded-full ink-pulse",
-                        isA ? "bg-[var(--cinnabar)]" : "bg-[var(--lapis)]",
-                      )}
-                    />
-                    聚光陈词
-                  </span>
-                ) : null}
-              </div>
-              <h2 className="mt-3 line-clamp-2 text-sm font-semibold leading-6 text-[var(--ink)]">{stance}</h2>
-            </div>
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            "flex h-11 w-11 shrink-0 items-center justify-center rounded-md border font-serif text-lg font-black",
+            isA ? "border-[var(--cinnabar)] text-[var(--cinnabar)]" : "border-[var(--lapis)] text-[var(--lapis)]",
+          )}
+        >
+          {sideLabel}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={tone}>{title}</Badge>
+            {persona ? (
+              <span className="text-xs font-semibold text-[var(--muted)]">
+                {persona.name} · {persona.era}
+              </span>
+            ) : null}
           </div>
+          <p className="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-[var(--ink)]">
+            {participant?.stance ?? (isA ? "正方：主张成立" : "反方：主张不成立")}
+          </p>
+          {persona ? <p className="mt-2 text-xs leading-5 text-[var(--muted)]">{persona.sampleTone}</p> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-          <div className="shrink-0 rounded-md border border-[var(--line)] bg-white/55 px-3 py-2 text-right">
-            <div className="text-[10px] font-semibold text-[var(--muted)]">得分</div>
-            <div className="mt-1 font-serif text-2xl font-black text-[var(--ink)]">{score || "--"}</div>
+function RoundSpeech({
+  mode,
+  participant,
+  round,
+  side,
+}: {
+  mode: OutputMode | string;
+  participant: ParticipantDTO | undefined;
+  round: DebateRoundDTO;
+  side: "A" | "B";
+}) {
+  const isA = side === "A";
+  const score = scoreFor(round, side);
+  const text = isA ? round.speakerAContent : round.speakerBContent;
+  const persona = getPersonaPreset(participant?.personaId);
+
+  return (
+    <div className={cn("flex", isA ? "justify-start" : "justify-end")}>
+      <section
+        className={cn(
+          "w-full rounded-md border bg-white/48 p-4 shadow-sm sm:max-w-[88%]",
+          isA ? "border-[var(--cinnabar)]/30" : "border-[var(--lapis)]/30",
+        )}
+      >
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3 border-b border-[var(--line)] pb-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={isA ? "rose" : "cyan"}>{isA ? "甲方发言" : "乙方回应"}</Badge>
+              {persona ? <span className="text-xs font-semibold text-[var(--muted)]">{persona.name}</span> : null}
+            </div>
+            <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--muted)]">
+              {participant?.stance ?? (isA ? "正方：主张成立" : "反方：主张不成立")}
+            </p>
           </div>
+          <div className="rounded-md border border-[var(--line)] bg-white/55 px-3 py-2 text-right">
+            <div className="text-[10px] font-semibold text-[var(--muted)]">本轮得分</div>
+            <div className="mt-0.5 font-serif text-xl font-black text-[var(--ink)]">{score || "--"}</div>
+          </div>
+        </div>
+        <SpeechText mode={mode} text={text} side={side} />
+      </section>
+    </div>
+  );
+}
+
+function JudgeMinute({ round }: { round: DebateRoundDTO }) {
+  const aScore = scoreFor(round, "A");
+  const bScore = scoreFor(round, "B");
+
+  return (
+    <section className="mx-auto rounded-md border border-[var(--brass)]/30 bg-[var(--brass-soft)]/35 p-4 sm:max-w-[92%]">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] pb-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-[var(--ink)]">
+          <Scale className="h-4 w-4 text-[var(--brass)]" />
+          裁判判词
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <span className="rounded-full bg-white/45 px-2.5 py-1 text-[var(--cinnabar)]">甲 {aScore || "--"}</span>
+          <span className="rounded-full bg-white/45 px-2.5 py-1 text-[var(--lapis)]">乙 {bScore || "--"}</span>
+          <span className="rounded-full bg-white/45 px-2.5 py-1 text-[var(--brass)]">
+            置信 {Math.round(round.confidence * 100)}%
+          </span>
+        </div>
+      </div>
+      <p className="text-sm leading-7 text-[var(--ink-soft)]">{round.judgeSummary}</p>
+      {round.judgeComment ? (
+        <p className="mt-3 border-t border-[var(--line)] pt-3 text-xs leading-6 text-[var(--muted)]">{round.judgeComment}</p>
+      ) : null}
+    </section>
+  );
+}
+
+function ConversationHall({
+  isRoundRunning,
+  session,
+  streamMessage,
+}: {
+  isRoundRunning: boolean;
+  session: DebateSessionDTO;
+  streamMessage: string | null;
+}) {
+  const endRef = useRef<HTMLDivElement | null>(null);
+  const participantA = session.participants.find((item) => item.side === "A");
+  const participantB = session.participants.find((item) => item.side === "B");
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [session.rounds.length, streamMessage]);
+
+  return (
+    <Panel className="docket-paper overflow-hidden p-0">
+      <div className="border-b border-[var(--line)] p-5 sm:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="cyan">对话厅</Badge>
+              <span className="text-xs font-semibold text-[var(--muted)]">全回合实录</span>
+            </div>
+            <h2 className="mt-3 font-serif text-2xl font-black text-[var(--ink)]">庭审对话流</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
+              每一轮依次保留甲方陈词、乙方回应与裁判判词，方便从首轮一路复盘到当前轮。
+            </p>
+          </div>
+          <div className="rounded-md border border-[var(--line)] bg-white/45 px-4 py-3 text-right">
+            <div className="text-[10px] font-semibold text-[var(--muted)]">已完成</div>
+            <div className="mt-1 font-serif text-3xl font-black text-[var(--ink)]">{session.rounds.length}</div>
+            <div className="text-xs text-[var(--muted)]">/ {session.maxRounds} 轮</div>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+          <SeatCard participant={participantA} side="A" />
+          <SeatCard participant={participantB} side="B" />
         </div>
       </div>
 
-      <div className="thin-scrollbar flex-1 overflow-y-auto p-5">
-        {content ? (
-          <SpeechText mode={mode} text={content} side={side} />
+      <div className="relative p-4 sm:p-6">
+        {session.rounds.length === 0 ? (
+          <div className="flex min-h-[420px] flex-col items-center justify-center gap-4 rounded-md border border-dashed border-[var(--line-strong)] bg-white/28 p-8 text-center">
+            <Activity className="h-6 w-6 text-[var(--cinnabar)] ink-pulse" />
+            <div>
+              <h3 className="font-serif text-xl font-bold text-[var(--ink)]">对话厅尚未开声</h3>
+              <p className="mt-2 max-w-md text-sm leading-6 text-[var(--muted)]">
+                点击底部“开庭”后，第一轮会在这里展开；后续每轮都会按时间顺序追加。
+              </p>
+            </div>
+          </div>
         ) : (
-          <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-3 text-center text-sm text-[var(--muted)]">
-            <Activity className="h-5 w-5 ink-pulse" />
-            等待本席陈词落卷。
+          <div className="space-y-6">
+            {session.rounds.map((round) => (
+              <article className="relative rounded-md border border-[var(--line)] bg-[var(--bg-glass)] p-4 sm:p-5" key={round.id}>
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] pb-4">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-md border border-[var(--line)] bg-white/45 font-serif text-lg font-black text-[var(--ink)]">
+                      {round.roundNumber}
+                    </span>
+                    <div>
+                      <h3 className="font-serif text-xl font-bold text-[var(--ink)]">第 {round.roundNumber} 轮攻防</h3>
+                      <p className="mt-1 text-xs text-[var(--muted)]">{formatDateTime(round.createdAt)}</p>
+                    </div>
+                  </div>
+                  <Badge tone={roundLeaderTone(round)}>本轮领先：{roundLeaderText(round)}</Badge>
+                </div>
+
+                <div className="space-y-4">
+                  <RoundSpeech mode={session.outputMode} participant={participantA} round={round} side="A" />
+                  <RoundSpeech mode={session.outputMode} participant={participantB} round={round} side="B" />
+                  <JudgeMinute round={round} />
+                </div>
+              </article>
+            ))}
           </div>
         )}
+
+        {isRoundRunning ? (
+          <div className="mt-6 rounded-md border border-[var(--lapis)]/35 bg-[var(--lapis-soft)]/55 p-4 text-sm leading-6 text-[var(--lapis)]">
+            <div className="flex items-center gap-2 font-semibold">
+              <span className="h-2 w-2 rounded-full bg-[var(--lapis)] ink-pulse" />
+              正在生成下一轮
+            </div>
+            <p className="mt-2">{streamMessage ?? "书记员正在整理发言、评分和判词。"}</p>
+          </div>
+        ) : null}
+        <div ref={endRef} />
       </div>
     </Panel>
   );
@@ -379,6 +520,25 @@ function RecapPanel({ session }: { session: DebateSessionDTO }) {
         </div>
       ) : null}
 
+      <div className="mt-4 grid gap-3">
+        <div className="rounded-md border border-[var(--line)] bg-white/35 p-3">
+          <div className="mb-2 text-xs font-semibold text-[var(--muted)]">证据链</div>
+          <ul className="space-y-2 text-xs leading-5 text-[var(--ink-soft)]">
+            {session.evidenceChain.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="rounded-md border border-[var(--line)] bg-white/35 p-3">
+          <div className="mb-2 text-xs font-semibold text-[var(--muted)]">风险与下一步</div>
+          <ul className="space-y-2 text-xs leading-5 text-[var(--ink-soft)]">
+            {[...session.personaDrift, ...session.factRisks, ...session.nextActions].slice(0, 6).map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
       <div className="mt-4 flex flex-wrap gap-2">
         <Button
           disabled={!session.exportAvailable || exportState.loading !== null}
@@ -423,6 +583,69 @@ function RecapPanel({ session }: { session: DebateSessionDTO }) {
         </pre>
       ) : null}
     </Panel>
+  );
+}
+
+function SourcePackPanel({ session }: { session: DebateSessionDTO }) {
+  if (session.sourceCards.length === 0) return null;
+  return (
+    <Panel className="p-5">
+      <div className="mb-4 flex items-center justify-between border-b border-[var(--line)] pb-3">
+        <h2 className="font-serif text-lg font-bold text-[var(--ink)]">资料席</h2>
+        <Badge tone="cyan">{session.sourceCards.length} 来源</Badge>
+      </div>
+      <div className="space-y-3">
+        {session.sourceCards.slice(0, 4).map((card) => (
+          <a
+            className="block rounded-md border border-[var(--line)] bg-white/35 p-3 transition hover:border-[var(--cinnabar)]"
+            href={card.url}
+            key={card.id}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <div className="text-xs font-semibold text-[var(--cinnabar)]">{card.sourceName}</div>
+            <div className="mt-1 line-clamp-2 text-sm font-bold text-[var(--ink)]">{card.title}</div>
+            <p className="mt-2 line-clamp-3 text-xs leading-5 text-[var(--muted)]">{card.summary}</p>
+            <p className="mt-2 text-[11px] leading-5 text-[var(--brass)]">{card.reliabilityNote}</p>
+          </a>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function PersonaStrip({ session }: { session: DebateSessionDTO }) {
+  const personas = session.participants
+    .filter((participant) => participant.side === "A" || participant.side === "B")
+    .map((participant) => ({
+      side: participant.side,
+      persona: getPersonaPreset(participant.personaId),
+      stance: participant.stance,
+    }))
+    .filter((item) => item.persona);
+
+  if (personas.length === 0) return null;
+
+  return (
+    <div className="mb-5 grid gap-3 md:grid-cols-2">
+      {personas.map((item) => (
+        <Panel className="p-4" key={item.side}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <Badge tone={item.side === "A" ? "rose" : "cyan"}>{item.side === "A" ? "甲方人格" : "乙方人格"}</Badge>
+              <h2 className="mt-3 font-serif text-xl font-bold text-[var(--ink)]">{item.persona?.name}</h2>
+              <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
+                {item.persona?.era} · {item.persona?.category}
+              </p>
+            </div>
+            <span className="rounded-md border border-[var(--line)] bg-white/35 px-2 py-1 text-xs text-[var(--muted)]">
+              {item.persona?.sampleTone}
+            </span>
+          </div>
+          <p className="mt-3 line-clamp-2 text-sm leading-6 text-[var(--ink-soft)]">{item.stance}</p>
+        </Panel>
+      ))}
+    </div>
   );
 }
 
@@ -578,12 +801,10 @@ function ControlConsole({
 export function DebateRoom({ initialSession }: { initialSession: DebateSessionDTO }) {
   const [session, setSession] = useState(initialSession);
   const [error, setError] = useState<string | null>(null);
+  const [streamMessage, setStreamMessage] = useState<string | null>(null);
   const [isRoundRunning, setIsRoundRunning] = useState(false);
   const [isPending, startTransition] = useTransition();
   const lockRef = useRef(false);
-  const latest = session.rounds.at(-1);
-  const participantA = session.participants.find((item) => item.side === "A");
-  const participantB = session.participants.find((item) => item.side === "B");
 
   const totalTokens = useMemo(
     () =>
@@ -613,17 +834,38 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
     setError(null);
 
     try {
-      const response = await fetch(`/api/debate/sessions/${initialSession.id}/rounds`, {
+      const response = await fetch(`/api/debate/sessions/${initialSession.id}/stream`, {
         method: "POST",
       });
-      const payload = (await response.json()) as { session?: DebateSessionDTO; error?: string };
-      if (!response.ok || !payload.session) throw new Error(payload.error ?? "回合生成失败。");
-      setSession(payload.session);
+      if (!response.ok || !response.body) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error ?? "回合生成失败。");
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        for (const rawEvent of events) {
+          const eventName = rawEvent.match(/^event: (.+)$/m)?.[1];
+          const dataLine = rawEvent.match(/^data: (.+)$/m)?.[1];
+          if (!eventName || !dataLine) continue;
+          const data = JSON.parse(dataLine) as { message?: string; session?: DebateSessionDTO; error?: string };
+          if (eventName === "stage") setStreamMessage(data.message ?? null);
+          if (eventName === "session" && data.session) setSession(data.session);
+          if (eventName === "error") throw new Error(data.error ?? "回合生成失败。");
+        }
+      }
     } catch (roundError) {
       setError(roundError instanceof Error ? roundError.message : "回合生成失败。");
     } finally {
       lockRef.current = false;
       setIsRoundRunning(false);
+      setStreamMessage(null);
     }
   }, [initialSession.id]);
 
@@ -641,8 +883,6 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
     return () => window.clearTimeout(timer);
   }, [runRound, session.status, session.currentRound]);
 
-  const isAActive = session.status === "running" || (latest !== undefined && scoreFor(latest, "A") >= scoreFor(latest, "B"));
-  const isBActive = session.status === "running" || (latest !== undefined && scoreFor(latest, "B") >= scoreFor(latest, "A"));
   const progress = Math.min(100, Math.round((session.currentRound / Math.max(session.maxRounds, 1)) * 100));
 
   return (
@@ -677,39 +917,30 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
         </div>
       ) : null}
 
+      {streamMessage ? (
+        <div className="mb-5 rounded-md border border-[var(--lapis)]/35 bg-[var(--lapis-soft)] p-4 text-sm text-[var(--lapis)]">
+          {streamMessage}
+        </div>
+      ) : null}
+
       {error ? (
         <div className="mb-5 rounded-md border border-[var(--rose)]/35 bg-[var(--rose-soft)] p-4 text-sm text-[var(--rose)]">
           庭务调用故障：{error}
         </div>
       ) : null}
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.06fr)_360px_minmax(0,1.06fr)]">
+      <PersonaStrip session={session} />
+
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
         <div className="order-2 xl:order-1">
-          <DebaterPanel
-            content={latest?.speakerAContent ?? ""}
-            isActive={isAActive}
-            mode={session.outputMode}
-            score={scoreFor(latest, "A")}
-            side="A"
-            stance={participantA?.stance ?? "正方：主张成立"}
-          />
+          <ConversationHall isRoundRunning={isRoundRunning} session={session} streamMessage={streamMessage} />
         </div>
 
         <div className="order-1 space-y-5 xl:order-2">
           <JudgePanel session={session} />
           <RecapPanel session={session} />
+          <SourcePackPanel session={session} />
           <RoundTimeline rounds={session.rounds} />
-        </div>
-
-        <div className="order-3 xl:order-3">
-          <DebaterPanel
-            content={latest?.speakerBContent ?? ""}
-            isActive={isBActive}
-            mode={session.outputMode}
-            score={scoreFor(latest, "B")}
-            side="B"
-            stance={participantB?.stance ?? "反方：主张不成立"}
-          />
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { DebateRoom } from "@/components/debate/debate-room";
 import { AppShell } from "@/components/layout/app-shell";
+import { getCurrentUser } from "@/lib/auth/session";
 import { getSession } from "@/lib/debate/engine";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,8 @@ export default async function DebateSessionPage({
   params: Promise<{ sessionId: string }>;
 }) {
   const { sessionId } = await params;
-  const session = await getSession(sessionId);
+  const user = await getCurrentUser();
+  const session = await getSession(sessionId, user.id);
 
   if (!session) notFound();
 

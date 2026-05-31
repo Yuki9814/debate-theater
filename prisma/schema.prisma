@@ -12,11 +12,23 @@ model User {
   email                 String                @unique
   name                  String?
   createdAt             DateTime              @default(now())
+  authSessions          AuthSession[]
   apiProviders          ApiProvider[]
   sessions              DebateSession[]
   personas              Persona[]             @relation("CreatedPersonas")
+  companionSessions     CompanionSession[]
   billingSubscriptions  BillingSubscription[]
   usageEvents           UsageEvent[]
+}
+
+model AuthSession {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ApiProvider {
@@ -53,6 +65,7 @@ model DebateSession {
   user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   participants DebateParticipant[]
   rounds       DebateRound[]
+  sourceCards  ResearchSourceCard[]
 }
 
 model DebateParticipant {
@@ -119,6 +132,53 @@ model Persona {
   createdByUserId String?
 
   createdByUser User? @relation("CreatedPersonas", fields: [createdByUserId], references: [id], onDelete: SetNull)
+}
+
+model ResearchSourceCard {
+  id              String   @id @default(cuid())
+  sessionId       String
+  title           String
+  url             String
+  sourceName      String
+  publishedTime   String
+  summary         String
+  reliabilityNote String
+  citationCount   Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  session DebateSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
+model CompanionSession {
+  id            String   @id @default(cuid())
+  userId        String
+  title         String
+  principalName String
+  companionName String
+  goal          String
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nodes CompanionNode[]
+}
+
+model CompanionNode {
+  id                 String   @id @default(cuid())
+  companionSessionId String
+  sequence           Int
+  nodeType           String
+  title              String
+  body               String
+  riskLevel          String
+  createdAt          DateTime @default(now())
+
+  companionSession CompanionSession @relation(fields: [companionSessionId], references: [id], onDelete: Cascade)
+
+  @@index([companionSessionId, sequence])
 }
 
 model BillingSubscription {

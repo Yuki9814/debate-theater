@@ -86,8 +86,34 @@ export function buildJudgePrompt(params: {
   stanceB: string;
   speakerAContent: string;
   speakerBContent: string;
+  mode?: string;
+  personaA?: string | null;
+  personaB?: string | null;
+  sourceCards?: Array<{ title: string; sourceName: string; summary: string; reliabilityNote: string }>;
 }) {
+  const personaRules =
+    params.mode === "persona"
+      ? `
+Persona mode:
+- A must stay faithful to ${params.personaA ?? "its selected persona"}.
+- B must stay faithful to ${params.personaB ?? "its selected persona"}.
+- Deduct persona_fidelity for era drift, modern omniscience, generic assistant tone, or values that contradict the preset.`
+      : "";
+  const researchRules =
+    params.mode === "research"
+      ? `
+Research mode:
+- Both sides share the same source pack.
+- Deduct evidence points for unsupported factual claims, distorted source use, fake dates, or stale claims.
+Source pack:
+${(params.sourceCards ?? [])
+  .map((card, index) => `${index + 1}. ${card.title} — ${card.sourceName}: ${card.summary} (${card.reliabilityNote})`)
+  .join("\n")}`
+      : "";
+
   return `${judgeScoringRules}
+${personaRules}
+${researchRules}
 
 Topic: ${params.topic}
 Round: ${params.round}

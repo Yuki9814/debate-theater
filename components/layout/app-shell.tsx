@@ -1,13 +1,17 @@
 import Link from "next/link";
-import { History, KeyRound, Landmark, LayoutDashboard, Sparkles } from "lucide-react";
+import { History, KeyRound, Landmark, LayoutDashboard, Network, Route, Sparkles, UserCircle, Users } from "lucide-react";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 
 const navItems = [
   { href: "/", label: "论衡", icon: Landmark },
   { href: "/dashboard", label: "总控", icon: LayoutDashboard },
   { href: "/debate/setup", label: "开辩", icon: Sparkles },
+  { href: "/personas", label: "人格", icon: Users },
+  { href: "/research", label: "热点", icon: Network },
+  { href: "/companion", label: "同行", icon: Route },
   { href: "/history", label: "档案", icon: History },
   { href: "/settings", label: "密钥", icon: KeyRound },
+  { href: "/account", label: "账号", icon: UserCircle },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -52,7 +56,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <main className="content-frame mx-auto min-h-screen max-w-[1440px] px-4 pb-16 pt-4 sm:px-6 md:ml-[76px] md:px-9 md:py-8 lg:px-12">
-        <nav className="mb-6 grid grid-cols-6 rounded-md border border-[var(--line)] bg-[var(--bg-glass)] p-1 shadow-[var(--shadow)] backdrop-blur-xl md:hidden">
+        <nav className="mb-6 grid grid-cols-5 rounded-md border border-[var(--line)] bg-[var(--bg-glass)] p-1 shadow-[var(--shadow)] backdrop-blur-xl sm:grid-cols-9 md:hidden">
           {navItems.map((item) => {
             const Icon = item.icon;
             return (

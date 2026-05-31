@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getSafeCheckoutOrigin } from "@/lib/billing/checkout-origin";
 import { createStripeCheckoutSession } from "@/lib/billing/stripe";
-import { ensureDemoUser } from "@/lib/debate/engine";
+import { getCurrentUser } from "@/lib/auth/session";
 import { errorResponse } from "@/lib/errors";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await ensureDemoUser();
+    const user = await getCurrentUser();
     const body = checkoutSchema.parse(await request.json());
     const origin = getSafeCheckoutOrigin(request);
     const checkout = await createStripeCheckoutSession({

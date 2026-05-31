@@ -11,6 +11,12 @@ export const debateStatuses = [
 
 export type DebateStatus = (typeof debateStatuses)[number];
 
+export const debateModes = ["free", "persona", "research", "companion"] as const;
+export type DebateMode = (typeof debateModes)[number];
+
+export const stanceModes = ["auto", "custom"] as const;
+export type StanceMode = (typeof stanceModes)[number];
+
 export const outputModes = ["full", "sentence", "theater"] as const;
 export type OutputMode = (typeof outputModes)[number];
 
@@ -19,7 +25,8 @@ export type ProviderId = (typeof providerIds)[number];
 
 export const debateSetupSchema = z.object({
   topic: z.string().trim().min(4, "请先输入辩题"),
-  mode: z.enum(["auto", "custom"]).default("auto"),
+  mode: z.enum(debateModes).default("free"),
+  stanceMode: z.enum(stanceModes).default("auto"),
   sideA: z.string().trim().optional(),
   sideB: z.string().trim().optional(),
   maxRounds: z.coerce.number().int().min(1).max(200).default(30),
@@ -28,12 +35,15 @@ export const debateSetupSchema = z.object({
   consecutiveLowLimit: z.coerce.number().int().min(1).max(20).default(3),
   judgeConfidence: z.coerce.number().min(0).max(1).default(0.75),
   outputMode: z.enum(outputModes).default("theater"),
-  providerA: z.enum(providerIds).default("mock"),
-  providerB: z.enum(providerIds).default("mock"),
-  providerJudge: z.enum(providerIds).default("mock"),
+  providerA: z.string().trim().default("mock"),
+  providerB: z.string().trim().default("mock"),
+  providerJudge: z.string().trim().default("mock"),
   modelA: z.string().trim().optional(),
   modelB: z.string().trim().optional(),
   modelJudge: z.string().trim().optional(),
+  personaAId: z.string().trim().optional(),
+  personaBId: z.string().trim().optional(),
+  researchQuery: z.string().trim().optional(),
 });
 
 export type DebateSetupInput = z.infer<typeof debateSetupSchema>;
@@ -118,9 +128,21 @@ export type DebateRoundDTO = {
   scores: JudgeScoreDTO[];
 };
 
+export type SourceCardDTO = {
+  id: string;
+  title: string;
+  url: string;
+  sourceName: string;
+  publishedTime: string;
+  summary: string;
+  reliabilityNote: string;
+  citationCount: number;
+  createdAt: string;
+};
+
 export type DebateSessionDTO = {
   id: string;
-  mode: string;
+  mode: DebateMode | string;
   topic: string;
   status: DebateStatus | string;
   maxRounds: number;
@@ -135,15 +157,21 @@ export type DebateSessionDTO = {
   updatedAt: string;
   participants: ParticipantDTO[];
   rounds: DebateRoundDTO[];
+  sourceCards: SourceCardDTO[];
   recapSummary: string | null;
   keyArguments: string[];
   weaknesses: string[];
+  evidenceChain: string[];
+  personaDrift: string[];
+  factRisks: string[];
+  nextActions: string[];
   exportAvailable: boolean;
 };
 
 export const defaultDebateSetup: DebateSetupInput = {
   topic: "",
-  mode: "auto",
+  mode: "free",
+  stanceMode: "auto",
   maxRounds: 30,
   pauseEveryRounds: 10,
   lowScoreThreshold: 55,

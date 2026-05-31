@@ -1,8 +1,9 @@
-import { encryptApiKey, maskApiKey } from "@/lib/ai";
+import { encryptApiKey } from "@/lib/ai";
 import { providerBaseUrlSchema } from "@/lib/ai/provider-url";
-import { ensureDemoUser } from "@/lib/debate/engine";
+import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { errorResponse } from "@/lib/errors";
+import { providerView } from "@/lib/providers/view";
 import { canEncryptSecrets } from "@/lib/security/secrets";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 import { z } from "zod";
@@ -15,25 +16,6 @@ const providerCreateSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
-function providerView(provider: {
-  id: string;
-  providerName: string;
-  baseUrl: string | null;
-  encryptedApiKey: string | null;
-  defaultModel: string | null;
-  enabled: boolean;
-}) {
-  return {
-    id: provider.id,
-    providerName: provider.providerName,
-    baseUrl: provider.baseUrl,
-    keyPreview: maskApiKey(provider.encryptedApiKey),
-    hasApiKey: Boolean(provider.encryptedApiKey),
-    defaultModel: provider.defaultModel,
-    enabled: provider.enabled,
-  };
-}
-
 export async function GET(request: Request) {
   const limit = consumeRateLimit("providers-list", request, {
     limit: 120,
@@ -42,7 +24,7 @@ export async function GET(request: Request) {
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await ensureDemoUser();
+    const user = await getCurrentUser();
     const providers = await prisma.apiProvider.findMany({
       where: { userId: user.id },
       orderBy: { updatedAt: "desc" },
@@ -65,7 +47,7 @@ export async function POST(request: Request) {
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await ensureDemoUser();
+    const user = await getCurrentUser();
     const body = providerCreateSchema.parse(await request.json());
 
     const provider = await prisma.apiProvider.create({

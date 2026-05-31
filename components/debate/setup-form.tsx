@@ -1,13 +1,38 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, ChevronDown, Gauge, Scale, ShieldCheck, SlidersHorizontal, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, Database, Network, Scale, Search, Sparkles, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
-import { defaultDebateSetup, providerOptions, type DebateSetupInput } from "@/lib/debate/types";
+import { defaultDebateSetup, providerOptions, type DebateMode, type DebateSetupInput } from "@/lib/debate/types";
+import { personaPresets, recommendPersonaTopics } from "@/lib/persona/presets";
 import { conversionScenarios } from "@/lib/product/conversion";
+
+type ProviderView = {
+  id: string;
+  providerName: string;
+  baseUrl: string | null;
+  defaultModel: string | null;
+  enabled: boolean;
+};
+
+type PersonaView = {
+  id: string;
+  name: string;
+  era?: string | null;
+  category: string;
+  coreBeliefs: string;
+  speakingStyle: string;
+};
+
+type SourceCardPreview = {
+  title: string;
+  sourceName: string;
+  summary: string;
+  reliabilityNote: string;
+};
 
 const PRESET_TOPICS = [
   {
@@ -27,81 +52,31 @@ const PRESET_TOPICS = [
   },
 ];
 
-type PresetTopic = (typeof PRESET_TOPICS)[number];
-
 function NumberField({
   label,
   value,
   min,
   max,
   onChange,
-  suffix,
 }: {
   label: string;
   value: number;
   min: number;
   max: number;
   onChange: (value: number) => void;
-  suffix?: string;
 }) {
   return (
     <label className="space-y-2">
-      <span className="field-label">
-        {label}
-        {suffix ? <span className="font-normal">{suffix}</span> : null}
-      </span>
-      <input
-        className="ink-input"
-        max={max}
-        min={min}
-        onChange={(event) => onChange(Number(event.target.value))}
-        type="number"
-        value={value}
-      />
+      <span className="field-label">{label}</span>
+      <input className="ink-input" max={max} min={min} onChange={(event) => onChange(Number(event.target.value))} type="number" value={value} />
     </label>
   );
 }
 
-function ProviderSelect({
-  label,
-  value,
-  model,
-  onProviderChange,
-  onModelChange,
-}: {
-  label: string;
-  value: DebateSetupInput["providerA"];
-  model: string;
-  onProviderChange: (value: DebateSetupInput["providerA"]) => void;
-  onModelChange: (value: string) => void;
-}) {
-  return (
-    <div className="grid gap-3 rounded-md border border-[var(--line)] bg-white/35 p-4 sm:grid-cols-[1fr_1fr]">
-      <label className="space-y-2">
-        <span className="field-label">{label}</span>
-        <select
-          className="ink-select"
-          onChange={(event) => onProviderChange(event.target.value as DebateSetupInput["providerA"])}
-          value={value}
-        >
-          {providerOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="space-y-2">
-        <span className="field-label">模型标识</span>
-        <input
-          className="ink-input"
-          onChange={(event) => onModelChange(event.target.value)}
-          placeholder={value === "mock" ? "mock-theater" : "gpt-4o-mini"}
-          value={model}
-        />
-      </label>
-    </div>
-  );
+function modeTone(mode: DebateMode) {
+  if (mode === "persona") return "rose" as const;
+  if (mode === "research") return "cyan" as const;
+  return "emerald" as const;
 }
 
 export function SetupForm() {
@@ -111,39 +86,108 @@ export function SetupForm() {
   const scenarioId = searchParams.get("scenario");
   const scenario = conversionScenarios.find((item) => item.id === scenarioId);
   const queryTopic = searchParams.get("topic")?.trim();
+  const [providers, setProviders] = useState<ProviderView[]>([]);
+  const [personas, setPersonas] = useState<PersonaView[]>(personaPresets);
+  const [sourcePreview, setSourcePreview] = useState<SourceCardPreview[]>([]);
   const [form, setForm] = useState<DebateSetupInput>({
     ...defaultDebateSetup,
     topic: scenario?.topic ?? queryTopic ?? "人工智能未来是否应该被赋予法律主体地位与道德权利义务？",
     sideA: scenario?.sideA,
     sideB: scenario?.sideB,
-    mode: scenario ? "custom" : "auto",
+    stanceMode: scenario ? "custom" : "auto",
     modelA: "mock-theater-a",
     modelB: "mock-theater-b",
     modelJudge: "mock-judge",
     outputMode: "theater",
+    personaAId: "confucius",
+    personaBId: "hanfeizi",
   });
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/providers")
+      .then((response) => response.json())
+      .then((payload: { providers?: ProviderView[] }) => {
+        setProviders((payload.providers ?? []).filter((provider) => provider.enabled));
+      });
+    void fetch("/api/personas")
+      .then((response) => response.json())
+      .then((payload: { personas?: PersonaView[] }) => {
+        if (payload.personas?.length) setPersonas(payload.personas);
+      });
+  }, []);
+
+  const providerChoices = useMemo(
+    () => [
+      ...providerOptions.map((provider) => ({
+        id: provider.id,
+        label: provider.name,
+        model: provider.id === "mock" ? "mock-theater" : "gpt-4.1-mini",
+      })),
+      ...providers.map((provider) => ({
+        id: provider.id,
+        label: `${provider.providerName} · ${provider.defaultModel ?? "默认模型"}`,
+        model: provider.defaultModel ?? "",
+      })),
+    ],
+    [providers],
+  );
+
+  const personaA = personas.find((persona) => persona.id === form.personaAId);
+  const personaB = personas.find((persona) => persona.id === form.personaBId);
+  const recommendedTopics =
+    personaA && personaB ? recommendPersonaTopics(personaA.name, personaB.name) : [];
 
   function update<K extends keyof DebateSetupInput>(key: K, value: DebateSetupInput[K]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function applyPreset(preset: PresetTopic) {
+  function setMode(mode: DebateMode) {
+    setForm((current) => ({
+      ...current,
+      mode,
+      stanceMode: mode === "persona" ? "custom" : current.stanceMode,
+      sideA: mode === "persona" && personaA ? `${personaA.name}以其思想与经历支持本方主张` : current.sideA,
+      sideB: mode === "persona" && personaB ? `${personaB.name}以其思想与经历反驳本方主张` : current.sideB,
+      researchQuery: mode === "research" ? current.topic : current.researchQuery,
+    }));
+  }
+
+  function applyPreset(preset: (typeof PRESET_TOPICS)[number]) {
     setForm((current) => ({
       ...current,
       topic: preset.topic,
       sideA: preset.sideA,
       sideB: preset.sideB,
-      mode: "custom",
+      stanceMode: "custom",
     }));
+  }
+
+  async function previewSources() {
+    setError(null);
+    const response = await fetch("/api/research/source-cards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic: form.researchQuery || form.topic }),
+    });
+    const payload = (await response.json()) as { sourceCards?: SourceCardPreview[]; error?: string };
+    if (!response.ok) {
+      setError(payload.error ?? "资料包生成失败。");
+      return;
+    }
+    setSourcePreview(payload.sourceCards ?? []);
   }
 
   async function submit() {
     setError(null);
     const sideA = form.sideA?.trim() ?? "";
     const sideB = form.sideB?.trim() ?? "";
-    if (form.mode === "custom" && (!sideA || !sideB)) {
-      setError("手动立场需要同时写明甲方与乙方主张，方可立卷。");
+    if (form.stanceMode === "custom" && (!sideA || !sideB)) {
+      setError("手动立场需要同时写明甲方与乙方主张。");
+      return;
+    }
+    if (form.mode === "persona" && (!form.personaAId || !form.personaBId)) {
+      setError("人格辩论需要同时选择甲乙两位身份。");
       return;
     }
 
@@ -152,6 +196,7 @@ export function SetupForm() {
       topic: form.topic.trim(),
       sideA: sideA || undefined,
       sideB: sideB || undefined,
+      researchQuery: form.researchQuery?.trim() || form.topic.trim(),
     };
 
     startTransition(async () => {
@@ -161,37 +206,55 @@ export function SetupForm() {
         body: JSON.stringify(preparedForm),
       });
       const payload = (await response.json()) as { session?: { id: string }; error?: string };
-
       if (!response.ok || !payload.session) {
         setError(payload.error ?? "创建辩论失败。");
         return;
       }
-
       router.push(`/debate/${payload.session.id}`);
     });
   }
 
-  const customStanceMissing =
-    form.mode === "custom" && (!(form.sideA ?? "").trim() || !(form.sideB ?? "").trim());
-
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+    <div className="grid gap-6 xl:grid-cols-[1.16fr_0.84fr]">
       <Panel className="docket-paper p-5 sm:p-7">
         <div className="border-b border-[var(--line)] pb-6">
           <div className="page-kicker">
-            <SlidersHorizontal className="h-4 w-4 text-[var(--cinnabar)]" />
-            快速开庭
+            <Sparkles className="h-4 w-4 text-[var(--cinnabar)]" />
+            多模式开庭
           </div>
-          <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)]">三分钟开一场辩论</h1>
+          <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)]">立卷并开庭</h1>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
-            先写议题，默认由系统自动拟定甲乙两席。需要精细控制时，再展开高级设置。
+            自由辩论、人格辩论与热点联网共用同一辩论引擎，甲乙席和裁判席可分别选择密钥舱接入器。
           </p>
         </div>
 
         <div className="mt-7 space-y-6">
+          <section className="grid gap-3 md:grid-cols-3">
+            {[
+              { id: "free" as const, label: "自由辩论", icon: Scale, body: "自动分正反或手写双方立场。" },
+              { id: "persona" as const, label: "人格辩论", icon: Users, body: "选择两位历史人格，按身份风格攻防。" },
+              { id: "research" as const, label: "热点联网", icon: Network, body: "先生成共享资料包，再进行事实约束辩论。" },
+            ].map((item) => {
+              const Icon = item.icon;
+              const active = form.mode === item.id;
+              return (
+                <button
+                  className={active ? "rounded-md border border-[var(--cinnabar)] bg-[var(--cinnabar-soft)] p-4 text-left" : "rounded-md border border-[var(--line)] bg-white/35 p-4 text-left transition hover:border-[var(--cinnabar)]"}
+                  key={item.id}
+                  onClick={() => setMode(item.id)}
+                  type="button"
+                >
+                  <Icon className="h-5 w-5 text-[var(--cinnabar)]" />
+                  <div className="mt-3 font-serif text-lg font-bold text-[var(--ink)]">{item.label}</div>
+                  <p className="mt-2 text-xs leading-5 text-[var(--muted)]">{item.body}</p>
+                </button>
+              );
+            })}
+          </section>
+
           <section className="space-y-3">
             <span className="field-label justify-start gap-2">
-              <Sparkles className="h-3.5 w-3.5 text-[var(--cinnabar)]" />
+              <BookOpen className="h-3.5 w-3.5 text-[var(--cinnabar)]" />
               高频开题
             </span>
             <div className="grid gap-2 md:grid-cols-3">
@@ -202,87 +265,156 @@ export function SetupForm() {
                   onClick={() => applyPreset(preset)}
                   type="button"
                 >
-                  <span className="mr-2 font-serif text-base font-bold text-[var(--cinnabar)]">
-                    {index + 1}
-                  </span>
+                  <span className="mr-2 font-serif text-base font-bold text-[var(--cinnabar)]">{index + 1}</span>
                   {preset.topic}
                 </button>
               ))}
             </div>
           </section>
 
+          {form.mode === "persona" ? (
+            <section className="grid gap-4 md:grid-cols-2">
+              {[
+                ["personaAId", "甲方人格", personaA],
+                ["personaBId", "乙方人格", personaB],
+              ].map(([key, label, selected]) => (
+                <label className="space-y-2" key={String(key)}>
+                  <span className="field-label">{String(label)}</span>
+                  <select
+                    className="ink-select"
+                    onChange={(event) => update(key as "personaAId" | "personaBId", event.target.value)}
+                    value={String(form[key as "personaAId" | "personaBId"] ?? "")}
+                  >
+                    {personas.map((persona) => (
+                      <option key={persona.id} value={persona.id}>
+                        {persona.name} · {persona.era ?? "未知时代"} · {persona.category}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="min-h-12 text-xs leading-5 text-[var(--muted)]">
+                    {(selected as PersonaView | undefined)?.coreBeliefs ?? "选择身份后会注入核心信念与口吻。"}
+                  </p>
+                </label>
+              ))}
+              <div className="md:col-span-2 grid gap-2 md:grid-cols-5">
+                {recommendedTopics.map((topic) => (
+                  <button
+                    className="rounded-md border border-[var(--line)] bg-white/35 p-3 text-left text-xs leading-5 text-[var(--ink-soft)] transition hover:border-[var(--cinnabar)]"
+                    key={topic}
+                    onClick={() => update("topic", topic)}
+                    type="button"
+                  >
+                    {topic}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           <label className="space-y-2 block">
             <span className="field-label">议题正文</span>
-            <textarea
-              className="ink-textarea min-h-[132px] text-base"
-              onChange={(event) => update("topic", event.target.value)}
-              placeholder="写下本次评议的核心议题..."
-              value={form.topic}
-            />
+            <textarea className="ink-textarea min-h-[132px] text-base" onChange={(event) => update("topic", event.target.value)} value={form.topic} />
           </label>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="space-y-2">
-              <span className="field-label">立场模式</span>
-              <select
-                className="ink-select"
-                onChange={(event) => update("mode", event.target.value as DebateSetupInput["mode"])}
-                value={form.mode}
-              >
-                <option value="auto">快速：系统自动拟定甲乙席</option>
-                <option value="custom">进阶：手写甲乙两席主张</option>
-              </select>
-            </label>
-            <div className="rounded-md border border-[var(--line)] bg-[var(--jade-soft)]/40 p-4 text-sm leading-7 text-[var(--muted)]">
-              免费公测默认使用 mock 模式，可先验证流程；真实模型、导出与长复盘在升级路径中解锁。
+          {form.mode !== "persona" ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="space-y-2">
+                <span className="field-label">立场模式</span>
+                <select className="ink-select" onChange={(event) => update("stanceMode", event.target.value as DebateSetupInput["stanceMode"])} value={form.stanceMode}>
+                  <option value="auto">系统自动拟定甲乙席</option>
+                  <option value="custom">手写甲乙两席主张</option>
+                </select>
+              </label>
+              <div className="rounded-md border border-[var(--line)] bg-white/35 p-4 text-sm leading-7 text-[var(--muted)]">
+                <Badge tone={modeTone(form.mode as DebateMode)}>{form.mode}</Badge>
+                <span className="ml-2">用户可随时暂停、继续、强制裁决或停止。</span>
+              </div>
             </div>
-          </div>
+          ) : null}
 
-          {form.mode === "custom" && (
+          {(form.stanceMode === "custom" || form.mode === "persona") && (
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-2">
                 <span className="field-label">甲方席主张</span>
-                <input
-                  className={customStanceMissing && !(form.sideA ?? "").trim() ? "ink-input border-[var(--rose)]" : "ink-input"}
-                  onChange={(event) => update("sideA", event.target.value)}
-                  placeholder="请输入甲方观点..."
-                  value={form.sideA ?? ""}
-                />
+                <input className="ink-input" onChange={(event) => update("sideA", event.target.value)} value={form.sideA ?? ""} />
               </label>
               <label className="space-y-2">
                 <span className="field-label">乙方席主张</span>
-                <input
-                  className={customStanceMissing && !(form.sideB ?? "").trim() ? "ink-input border-[var(--rose)]" : "ink-input"}
-                  onChange={(event) => update("sideB", event.target.value)}
-                  placeholder="请输入乙方观点..."
-                  value={form.sideB ?? ""}
-                />
+                <input className="ink-input" onChange={(event) => update("sideB", event.target.value)} value={form.sideB ?? ""} />
               </label>
             </div>
           )}
 
-          <details className="advanced-brief rounded-md border border-[var(--line)] bg-white/42">
+          {form.mode === "research" ? (
+            <section className="rounded-md border border-[var(--line)] bg-white/35 p-4">
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="min-w-[240px] flex-1 space-y-2">
+                  <span className="field-label">搜索关键词</span>
+                  <input className="ink-input" onChange={(event) => update("researchQuery", event.target.value)} value={form.researchQuery ?? form.topic} />
+                </label>
+                <Button onClick={() => void previewSources()} type="button" variant="secondary">
+                  <Search className="h-4 w-4" />
+                  预览资料包
+                </Button>
+              </div>
+              {sourcePreview.length > 0 ? (
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {sourcePreview.slice(0, 4).map((card) => (
+                    <div className="rounded-md border border-[var(--line)] bg-[var(--bg-glass)] p-3" key={`${card.sourceName}-${card.title}`}>
+                      <div className="text-xs font-semibold text-[var(--cinnabar)]">{card.sourceName}</div>
+                      <div className="mt-1 line-clamp-2 text-sm font-bold text-[var(--ink)]">{card.title}</div>
+                      <p className="mt-2 line-clamp-3 text-xs leading-5 text-[var(--muted)]">{card.summary}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          <details className="advanced-brief rounded-md border border-[var(--line)] bg-white/42" open>
             <summary className="flex cursor-pointer items-center justify-between gap-4 p-4">
               <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--ink)]">
-                <Scale className="h-4 w-4 text-[var(--lapis)]" />
-                高级裁判参数
+                <Database className="h-4 w-4 text-[var(--lapis)]" />
+                模型席位与裁判参数
               </span>
-              <span className="hidden shrink-0 items-center gap-2 text-xs text-[var(--muted)] sm:flex">
-                回合、断点、模型与密钥舱
-                <ChevronDown className="h-4 w-4" />
-              </span>
-              <ChevronDown className="h-4 w-4 shrink-0 text-[var(--muted)] sm:hidden" />
             </summary>
-            <div className="space-y-6 border-t border-[var(--line)] p-4">
+            <div className="space-y-5 border-t border-[var(--line)] p-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                {[
+                  ["providerA", "甲方席接入器", "modelA"],
+                  ["providerB", "乙方席接入器", "modelB"],
+                  ["providerJudge", "裁判席接入器", "modelJudge"],
+                ].map(([providerKey, label, modelKey]) => (
+                  <div className="rounded-md border border-[var(--line)] bg-white/35 p-3" key={providerKey}>
+                    <label className="space-y-2 block">
+                      <span className="field-label">{label}</span>
+                      <select
+                        className="ink-select"
+                        onChange={(event) => update(providerKey as "providerA" | "providerB" | "providerJudge", event.target.value)}
+                        value={String(form[providerKey as "providerA" | "providerB" | "providerJudge"])}
+                      >
+                        {providerChoices.map((provider) => (
+                          <option key={provider.id} value={provider.id}>
+                            {provider.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="mt-3 space-y-2 block">
+                      <span className="field-label">模型标识</span>
+                      <input
+                        className="ink-input"
+                        onChange={(event) => update(modelKey as "modelA" | "modelB" | "modelJudge", event.target.value)}
+                        value={String(form[modelKey as "modelA" | "modelB" | "modelJudge"] ?? "")}
+                      />
+                    </label>
+                  </div>
+                ))}
+              </div>
+
               <label className="space-y-2 block">
                 <span className="field-label">判词呈现</span>
-                <select
-                  className="ink-select"
-                  onChange={(event) =>
-                    update("outputMode", event.target.value as DebateSetupInput["outputMode"])
-                  }
-                  value={form.outputMode}
-                >
+                <select className="ink-select" onChange={(event) => update("outputMode", event.target.value as DebateSetupInput["outputMode"])} value={form.outputMode}>
                   <option value="theater">庭审摘录</option>
                   <option value="sentence">逐句拆解</option>
                   <option value="full">原文整段</option>
@@ -290,83 +422,11 @@ export function SetupForm() {
               </label>
 
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <NumberField
-                  label="最大回合"
-                  max={200}
-                  min={1}
-                  onChange={(value) => update("maxRounds", value)}
-                  suffix="1-200"
-                  value={form.maxRounds}
-                />
-                <NumberField
-                  label="断点频率"
-                  max={50}
-                  min={1}
-                  onChange={(value) => update("pauseEveryRounds", value)}
-                  suffix="每 N 轮"
-                  value={form.pauseEveryRounds}
-                />
-                <NumberField
-                  label="低分线"
-                  max={100}
-                  min={1}
-                  onChange={(value) => update("lowScoreThreshold", value)}
-                  suffix="1-100"
-                  value={form.lowScoreThreshold}
-                />
-                <NumberField
-                  label="连续低分上限"
-                  max={20}
-                  min={1}
-                  onChange={(value) => update("consecutiveLowLimit", value)}
-                  suffix="1-20"
-                  value={form.consecutiveLowLimit}
-                />
+                <NumberField label="最大回合" max={200} min={1} onChange={(value) => update("maxRounds", value)} value={form.maxRounds} />
+                <NumberField label="断点频率" max={50} min={1} onChange={(value) => update("pauseEveryRounds", value)} value={form.pauseEveryRounds} />
+                <NumberField label="低分线" max={100} min={1} onChange={(value) => update("lowScoreThreshold", value)} value={form.lowScoreThreshold} />
+                <NumberField label="连续低分" max={20} min={1} onChange={(value) => update("consecutiveLowLimit", value)} value={form.consecutiveLowLimit} />
               </div>
-
-              <label className="space-y-3 block">
-                <span className="field-label">
-                  裁判置信阈值
-                  <span>{Math.round(form.judgeConfidence * 100)}%</span>
-                </span>
-                <input
-                  className="w-full accent-[var(--cinnabar)]"
-                  max="1"
-                  min="0.3"
-                  onChange={(event) => update("judgeConfidence", Number(event.target.value))}
-                  step="0.05"
-                  type="range"
-                  value={form.judgeConfidence}
-                />
-              </label>
-
-              <section className="space-y-3">
-                <span className="field-label justify-start gap-2">
-                  <Scale className="h-3.5 w-3.5 text-[var(--lapis)]" />
-                  密钥舱与算力席次
-                </span>
-                <ProviderSelect
-                  label="甲方席代理"
-                  model={form.modelA ?? ""}
-                  onModelChange={(value) => update("modelA", value)}
-                  onProviderChange={(value) => update("providerA", value)}
-                  value={form.providerA}
-                />
-                <ProviderSelect
-                  label="乙方席代理"
-                  model={form.modelB ?? ""}
-                  onModelChange={(value) => update("modelB", value)}
-                  onProviderChange={(value) => update("providerB", value)}
-                  value={form.providerB}
-                />
-                <ProviderSelect
-                  label="中央裁判席"
-                  model={form.modelJudge ?? ""}
-                  onModelChange={(value) => update("modelJudge", value)}
-                  onProviderChange={(value) => update("providerJudge", value)}
-                  value={form.providerJudge}
-                />
-              </section>
             </div>
           </details>
 
@@ -379,42 +439,18 @@ export function SetupForm() {
         </div>
       </Panel>
 
-      <div className="hidden space-y-4 xl:block">
+      <div className="space-y-4">
         {[
-          {
-            title: "断点复核",
-            body: "最高轮数、低分线与连续低分上限共同构成庭审护栏。",
-            icon: Gauge,
-            tone: "cyan" as const,
-          },
-          {
-            title: "中文判词",
-            body: "两席围绕主张连续陈词，中央裁判逐轮留下判词与分牌。",
-            icon: Sparkles,
-            tone: "rose" as const,
-          },
-          {
-            title: "密钥舱",
-            body: "真实服务商密钥封存在服务端，浏览器只接触本地路由。",
-            icon: ShieldCheck,
-            tone: "emerald" as const,
-          },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <Panel className="p-5 shadow-none" key={item.title}>
-              <div className="flex items-start gap-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-white/45">
-                  <Icon className="h-5 w-5 text-[var(--cinnabar)]" />
-                </div>
-                <div>
-                  <Badge tone={item.tone}>{item.title}</Badge>
-                  <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{item.body}</p>
-                </div>
-              </div>
-            </Panel>
-          );
-        })}
+          ["人格一致性", "裁判会对时代错位、口吻漂移、现代全知视角扣分。"],
+          ["联网事实席", "热点模式会先生成共享资料包，双方不得伪造来源。"],
+          ["真实接入器", "密钥舱保存的 Provider 实例可分别挂载到甲乙与裁判席。"],
+          ["用户最高权限", "断点、轮数上限、暂停、停止和强制裁决仍是最高规则。"],
+        ].map(([title, body]) => (
+          <Panel className="p-5" key={title}>
+            <Badge tone="amber">{title}</Badge>
+            <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{body}</p>
+          </Panel>
+        ))}
       </div>
     </div>
   );

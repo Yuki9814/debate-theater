@@ -1,3 +1,4 @@
+import { getCurrentUser } from "@/lib/auth/session";
 import { getSession, updateSessionStatus } from "@/lib/debate/engine";
 import { sessionControlSchema } from "@/lib/debate/types";
 import { errorResponse } from "@/lib/errors";
@@ -15,7 +16,8 @@ export async function GET(_request: Request, context: RouteContext) {
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
-  const session = await getSession(sessionId);
+  const user = await getCurrentUser();
+  const session = await getSession(sessionId, user.id);
 
   if (!session) {
     return Response.json({ error: "未找到该辩论场。" }, { status: 404 });
@@ -34,8 +36,10 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   try {
     const body = sessionControlSchema.parse(await request.json());
+    const user = await getCurrentUser();
     const session = await updateSessionStatus({
       sessionId,
+      userId: user.id,
       status: body.status,
       winner: body.winner,
       maxRounds: body.maxRounds,

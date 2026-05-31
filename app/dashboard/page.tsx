@@ -5,8 +5,9 @@ import { BillingPanel } from "@/components/billing/billing-panel";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
+import { getCurrentUser } from "@/lib/auth/session";
 import { getBillingEntitlement } from "@/lib/billing/service";
-import { ensureDemoUser, sessionInclude } from "@/lib/debate/engine";
+import { sessionInclude } from "@/lib/debate/engine";
 import { prisma } from "@/lib/db/prisma";
 import { conversionScenarios, roadmapModules } from "@/lib/product/conversion";
 import { formatDateTime } from "@/lib/utils";
@@ -33,7 +34,7 @@ function statusText(status: string) {
 }
 
 export default async function DashboardPage() {
-  const user = await ensureDemoUser();
+  const user = await getCurrentUser();
   const [sessions, entitlement] = await Promise.all([
     prisma.debateSession.findMany({
       where: { userId: user.id },

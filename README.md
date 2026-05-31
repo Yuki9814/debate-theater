@@ -2,16 +2,20 @@
 
 Premium AI debate web app built with Next.js, TypeScript, Tailwind CSS, shadcn-style UI primitives, Framer Motion, Prisma schema modeling, and local SQLite persistence.
 
-## Phase 1 MVP
+## Current Build
 
 - Landing page, dashboard, setup page, debate room, history, and API provider settings.
 - Free Debate Arena with two AI debaters and one AI judge.
+- Web email session login with local demo fallback and account export/delete controls.
 - Mock provider works without real API keys.
-- OpenAI and OpenAI-compatible server-side provider adapters are in place.
+- OpenAI and OpenAI-compatible server-side provider adapters are in place, and saved provider instances can be assigned separately to A, B, and judge seats.
 - Judge outputs structured JSON and scores logic, evidence, rebuttal, clarity, and persona fidelity.
 - Round limit, pause-every-N-rounds, stop/resume, next round, force end, and override controls.
 - Debate history persists through local SQLite. Prisma schema/config are included for the data model and generated client workflow.
-- Persona Debate, Hot Topic Debate, and Historical Companion Mode are visible coming-soon modules with stubs.
+- Persona Debate ships with a 30+ preset Chinese-ready persona library and persona fidelity scoring.
+- Hot Topic Debate creates shared source cards through a Tavily-style search adapter with local fallback cards.
+- Historical Companion Mode creates worldline timelines with historical fact, reasonable inference, and fictional branch nodes.
+- Debate rounds can be requested through an SSE endpoint for staged streaming UI updates.
 - Server-side billing and entitlement boundaries are in place for a profitable launch path.
 - Provider keys are encrypted at rest when `API_KEY_ENCRYPTION_SECRET` is configured.
 - Core backend logic has Node test coverage and a lightweight security scan.
@@ -41,11 +45,14 @@ STRIPE_SECRET_KEY=""
 STRIPE_WEBHOOK_SECRET=""
 STRIPE_PRICE_PRO_MONTHLY=""
 STRIPE_PRICE_STUDIO_MONTHLY=""
+AUTH_PROVIDER=""
+AUTH_SECRET=""
 ```
 
 Do not expose provider keys with `NEXT_PUBLIC_`. Browser code only calls local API routes; model calls stay behind server-side adapters.
 
 Real provider key storage requires `API_KEY_ENCRYPTION_SECRET` to be at least 32 random characters. Without it, mock mode still works, but saving real keys is blocked.
+Hot-topic research uses the Tavily adapter by default; configure its server-side credential in the deployment environment when real web research is needed.
 
 ## Verification
 

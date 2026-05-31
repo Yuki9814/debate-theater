@@ -38,6 +38,18 @@ type RawParticipant = {
   systemPrompt: string;
 };
 
+type RawSourceCard = {
+  id: string;
+  title: string;
+  url: string;
+  sourceName: string;
+  publishedTime: string;
+  summary: string;
+  reliabilityNote: string;
+  citationCount: number;
+  createdAt: Date;
+};
+
 type RawSession = {
   id: string;
   mode: string;
@@ -55,16 +67,24 @@ type RawSession = {
   updatedAt: Date;
   participants: RawParticipant[];
   rounds: RawRound[];
+  sourceCards?: RawSourceCard[];
 };
 
 export function serializeSession(session: RawSession): DebateSessionDTO {
   const serialized = {
     ...session,
+    mode: session.mode ?? "free",
+    outputMode: session.outputMode ?? "theater",
+    winner: session.winner ?? null,
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString(),
     rounds: session.rounds.map((round) => ({
       ...round,
       createdAt: round.createdAt.toISOString(),
+    })),
+    sourceCards: (session.sourceCards ?? []).map((card) => ({
+      ...card,
+      createdAt: card.createdAt.toISOString(),
     })),
   };
   return {

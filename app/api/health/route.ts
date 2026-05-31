@@ -1,10 +1,12 @@
 import { canEncryptSecrets } from "@/lib/security/secrets";
+import { getAuthenticatedUser } from "@/lib/auth/session";
 
 function configured(value: string | undefined) {
   return Boolean(value?.trim());
 }
 
 export async function GET() {
+  const authenticated = await getAuthenticatedUser();
   const authConfigured = configured(process.env.AUTH_PROVIDER) || configured(process.env.AUTH_SECRET);
   const stripeConfigured =
     configured(process.env.STRIPE_SECRET_KEY) &&
@@ -14,7 +16,7 @@ export async function GET() {
   const monitoringConfigured =
     configured(process.env.SENTRY_DSN) || configured(process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
   const blockers = [
-    !authConfigured ? "真实认证未配置，demo-user 只能用于本地或演示环境。" : null,
+    !authConfigured ? "AUTH_PROVIDER/AUTH_SECRET 未配置；当前可用本地邮箱会话，但生产需接正式认证。" : null,
     !canEncryptSecrets() ? "API_KEY_ENCRYPTION_SECRET 未配置，真实 Provider Key 不能安全保存。" : null,
     !stripeConfigured ? "Stripe 价格、密钥或 webhook 未完整配置。" : null,
     !monitoringConfigured ? "生产监控未配置，缺少错误率、延迟和成本告警入口。" : null,
@@ -28,6 +30,7 @@ export async function GET() {
     productionReady: blockers.length === 0,
     checks: {
       authConfigured,
+      sessionAuthenticated: Boolean(authenticated),
       stripeConfigured,
       monitoringConfigured,
     },

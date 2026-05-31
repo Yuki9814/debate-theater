@@ -42,9 +42,11 @@ function weakestDimension(score: JudgeScoreDTO | undefined) {
 export function buildSessionRecap(session: {
   topic: string;
   status: string;
+  mode?: string;
   winner: string | null;
   participants: ParticipantDTO[];
   rounds: DebateRoundDTO[];
+  sourceCards?: Array<{ title: string; sourceName: string; reliabilityNote: string }>;
 }) {
   const rounds = session.rounds;
   if (rounds.length === 0) {
@@ -52,6 +54,10 @@ export function buildSessionRecap(session: {
       recapSummary: null,
       keyArguments: [],
       weaknesses: [],
+      evidenceChain: [],
+      personaDrift: [],
+      factRisks: [],
+      nextActions: [],
       exportAvailable: false,
     };
   }
@@ -78,6 +84,30 @@ export function buildSessionRecap(session: {
       `乙方需补强：${weakestDimension(bScore)}维度`,
       "下一步：围绕裁判判词补证据、压缩概念边界，并直接回应对方最强论点。",
     ],
+    evidenceChain:
+      session.sourceCards && session.sourceCards.length > 0
+        ? session.sourceCards.slice(0, 4).map((card) => `${card.sourceName}：${compact(card.title, 72)}`)
+        : ["暂无外部来源卡；本场主要依赖双方论证自洽性。"],
+    personaDrift:
+      session.mode === "persona"
+        ? [
+            `甲方角色一致性：${aScore?.personaFidelity ?? "--"}/10`,
+            `乙方角色一致性：${bScore?.personaFidelity ?? "--"}/10`,
+            "若出现现代知识碾压、时代错位或口吻漂移，裁判应继续扣角色一致性。",
+          ]
+        : ["非人格模式：角色一致性按基础表达稳定度处理。"],
+    factRisks:
+      session.mode === "research"
+        ? [
+            `资料包来源数：${session.sourceCards?.length ?? 0}`,
+            "未引用来源的具体新闻、数据、法律状态应被视为事实风险。",
+          ]
+        : ["非联网热点模式：事实风险未接入来源卡自动校验。"],
+    nextActions: [
+      "追问胜方最薄弱的证据链。",
+      "要求败方重构最强反驳而不是重复立场。",
+      "必要时降低最大回合或触发人工裁决，避免无效消耗。",
+    ],
     exportAvailable: rounds.length > 0,
   };
 }
@@ -98,6 +128,21 @@ export function exportSessionAsMarkdown(session: DebateSessionDTO) {
     "",
     "## 薄弱环节",
     ...session.weaknesses.map((item) => `- ${item}`),
+    "",
+    "## 证据链",
+    ...session.evidenceChain.map((item) => `- ${item}`),
+    "",
+    "## 角色一致性 / 事实风险",
+    ...session.personaDrift.map((item) => `- ${item}`),
+    ...session.factRisks.map((item) => `- ${item}`),
+    "",
+    "## 下一步建议",
+    ...session.nextActions.map((item) => `- ${item}`),
+    "",
+    "## 来源卡",
+    ...(session.sourceCards.length > 0
+      ? session.sourceCards.map((card) => `- ${card.title} (${card.sourceName}) ${card.url}`)
+      : ["- 暂无来源卡"]),
     "",
     "## 回合记录",
   ];

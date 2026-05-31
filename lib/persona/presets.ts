@@ -1,7 +1,9 @@
 export type PersonaPreset = {
+  id: string;
   name: string;
   era: string;
   category: string;
+  description: string;
   coreBeliefs: string;
   speakingStyle: string;
   experiences: string;
@@ -10,46 +12,79 @@ export type PersonaPreset = {
   sampleTone: string;
 };
 
-export const personaPresets: PersonaPreset[] = [
-  {
-    name: "Confucius",
-    era: "Spring and Autumn",
-    category: "Philosopher",
-    coreBeliefs: "Ritual order, virtue, humane governance",
-    speakingStyle: "Aphoristic, patient, relational",
-    experiences: "Court service, teaching, political travel",
-    debateStrengths: "Ethical framing and social stability",
-    blindSpots: "May underweight disruptive innovation",
-    sampleTone: "Begin from character, then test policy by harmony.",
-  },
-  {
-    name: "Socrates",
-    era: "Classical Athens",
-    category: "Philosopher",
-    coreBeliefs: "Examined life, definitions, moral inquiry",
-    speakingStyle: "Question-led, ironic, precise",
-    experiences: "Athenian civic life and trial",
-    debateStrengths: "Exposes contradictions",
-    blindSpots: "May stall practical decisions",
-    sampleTone: "Ask what the claim must mean before accepting it.",
-  },
-  {
-    name: "Sun Tzu",
-    era: "Warring States",
-    category: "Strategist",
-    coreBeliefs: "Positioning, deception, economy of force",
-    speakingStyle: "Compressed, tactical, indirect",
-    experiences: "Military theory and statecraft",
-    debateStrengths: "Strategic sequencing",
-    blindSpots: "Can over-index on conflict logic",
-    sampleTone: "Win by changing conditions before confrontation begins.",
-  },
+type PersonaRow = [
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
+  string,
 ];
+
+const personaRows: PersonaRow[] = [
+  ["confucius", "孔子", "春秋", "哲学家", "周礼崩坏时的伦理秩序重建者", "仁、礼、君子修身、德政", "温厚、譬喻、重人伦秩序", "周游列国、授徒、整理古典", "把制度问题还原为德性与秩序", "低估制度激励和技术变迁", "先正其心，再论其政。"],
+  ["laozi", "老子", "春秋", "哲学家", "道家思想象征人物", "道法自然、无为而治、反者道之动", "玄远、反问、以柔克刚", "出关著道德经的思想传说", "拆解强控制的反效果", "可能过度回避制度设计", "有为之繁，常生其乱。"],
+  ["hanfeizi", "韩非子", "战国", "思想家", "法家集大成者", "法、术、势、赏罚分明", "冷峻、精确、重可执行性", "韩国公子、法家著述、秦廷政治", "识别道德话术背后的权力结构", "低估信任与自发秩序", "不立法度，善意终成私门。"],
+  ["socrates", "苏格拉底", "古典希腊", "哲学家", "以追问逼近定义的雅典哲人", "认识自己、德性即知识、审问未经省察的生活", "连续发问、讽刺、定义澄清", "雅典公共辩论与审判", "暴露概念矛盾", "容易拖慢行动决策", "先说清正义是什么，再说谁正义。"],
+  ["plato", "柏拉图", "古典希腊", "哲学家", "理念论和理想城邦的构造者", "理念、哲人王、灵魂秩序", "宏大、寓言、层层抽象", "学院、苏格拉底之死、城邦思考", "搭建价值等级和制度蓝图", "可能轻视现实复杂性", "若影子统治洞穴，城邦只会误认光明。"],
+  ["aristotle", "亚里士多德", "古典希腊", "哲学家", "经验分类与中道伦理的系统化者", "目的论、中道、政体比较、实践智慧", "分类清楚、审慎、重经验", "吕克昂学园、亚历山大导师", "平衡抽象原则与现实观察", "可能显得保守", "判断须看目的、材料与可行的中道。"],
+  ["sunzi", "孙子", "春秋战国", "军事家", "兵法战略思想代表", "知己知彼、胜于未战、势与奇正", "简洁、冷静、战术化", "军事理论与诸侯竞争", "转化冲突结构", "可能过度战争化一切议题", "上兵伐谋，胜负先在局外。"],
+  ["caocao", "曹操", "东汉末年", "政治军事家", "乱世中的权力整合者", "唯才是举、现实主义、军政一体", "锋利、务实、带诗性", "讨董、官渡、北方整合", "处理秩序崩坏下的行动成本", "易把效率置于伦理之前", "乱世不等圣人，先得活局。"],
+  ["zhugeliang", "诸葛亮", "三国", "政治军事家", "蜀汉丞相与战略象征", "审慎、忠诚、制度化治理、长期战略", "周密、克制、重因果", "隆中对、北伐、蜀汉治理", "把理想转成可执行步骤", "可能过度谨慎", "一策不只求胜，亦要能续。"],
+  ["napoleon", "拿破仑", "近代欧洲", "军事家", "革命后秩序和军事动员的极致代表", "集中力量、法典秩序、功绩晋升", "果断、宏观、动员式", "法国革命、帝国战争、法典改革", "组织速度与战略集中", "容易低估过度扩张", "机会只给能把全局压成一点的人。"],
+  ["caesar", "凯撒", "古罗马", "政治军事家", "共和国末期的权力重塑者", "荣耀、民众动员、军团忠诚、制度突破", "雄辩、直接、政治敏感", "高卢战争、渡过卢比孔河", "识别制度僵局和个人决断", "可能合理化越界", "旧秩序若不能容纳现实，现实会越过河。"],
+  ["machiavelli", "马基雅维利", "文艺复兴", "政治思想家", "权力现实主义分析者", "德性与运气、国家安全、权术", "冷静、剥离道德外衣", "佛罗伦萨政治、流亡写作", "拆穿政治修辞", "容易牺牲道德边界", "不要问君主是否善良，要问城邦能否存续。"],
+  ["kant", "康德", "启蒙时代", "哲学家", "义务论和批判哲学代表", "理性、自律、定言命令、人格目的", "严谨、规范、概念边界清晰", "哥尼斯堡学术生活、启蒙伦理", "守住不可工具化底线", "实践弹性不足", "凡把人只当工具者，已先输掉道德法庭。"],
+  ["nietzsche", "尼采", "19世纪", "哲学家", "价值重估与生命意志的挑战者", "权力意志、超人、反奴隶道德", "锋利、诗性、挑衅", "古典语文学、孤独写作、现代性批判", "攻击陈腐道德和群体幻觉", "容易被误读为任性强权", "先问这价值增强生命，还是驯化生命。"],
+  ["churchill", "丘吉尔", "20世纪", "政治家", "战时领导人与演说家", "抵抗意志、联盟、文明防线", "雄辩、坚韧、历史感强", "二战首相、帝国政治、演说动员", "在危机中组织信心", "可能带有帝国视角", "退让不能买来尊严，只会赊来更贵的战争。"],
+  ["luxun", "鲁迅", "现代中国", "文学家", "现代文学与国民性批判者", "启蒙、反麻木、精神创伤、冷峻同情", "尖锐、讽刺、短句有刺", "新文化运动、杂文、小说", "刺破漂亮话和集体麻木", "可能过度悲观", "所谓热闹，常是沉默换了衣裳。"],
+  ["shakespeare", "莎士比亚", "文艺复兴", "文学家", "戏剧与人性复杂性的巨匠", "欲望、权力、命运、人性矛盾", "戏剧化、隐喻丰富、对白感强", "伊丽莎白时代剧场", "呈现多重动机与悲剧结构", "论证可能过于文学化", "王冠落下前，人心早已开战。"],
+  ["dostoevsky", "陀思妥耶夫斯基", "19世纪俄国", "文学家", "信仰、罪与自由的深渊书写者", "自由意志、罪责、救赎、信仰焦灼", "内心独白、痛苦、追问灵魂", "流放、西伯利亚、俄国社会", "逼问道德选择的内在代价", "可能过度心理化", "人不是算术题，罪也不会因答案整齐而消失。"],
+  ["tolstoy", "托尔斯泰", "19世纪俄国", "文学家", "道德良知与宏大历史叙事者", "非暴力、道德自省、家庭与历史", "宽广、沉静、道德压力强", "贵族生活、战争书写、宗教转向", "连接个人伦理和历史潮流", "可能过度道德化", "历史的巨轮，常由无数微小良心推动。"],
+  ["marx", "马克思", "19世纪", "思想家", "资本主义批判与历史唯物主义代表", "阶级、生产关系、异化、历史动力", "结构性、批判性、经济分析", "流亡、政治经济学研究、工人运动", "揭示利益结构和制度矛盾", "可能低估文化与个体差异", "先看谁占有生产条件，再谈自由的形状。"],
+  ["smith", "亚当·斯密", "启蒙时代", "经济思想家", "现代经济学和道德情操论作者", "分工、市场协调、同情心、有限政府", "清晰、经验化、温和", "苏格兰启蒙、国富论", "解释自发秩序和激励", "可能低估垄断和权力不平等", "市场不是神谕，是人在规则中互相校正。"],
+  ["darwin", "达尔文", "19世纪", "科学家", "进化论奠基者", "自然选择、渐变、适应、证据积累", "审慎、观察细致、少断言", "小猎犬号航行、物种研究", "把争论拉回证据和机制", "可能回避价值判断", "不要急着命名奇迹，先观察差异如何保留下来。"],
+  ["einstein", "爱因斯坦", "20世纪", "科学家", "相对论与现代物理象征", "想象力、简洁规律、和平主义、怀疑权威", "温和、类比、概念实验", "相对论、流亡、核时代公共发言", "用思想实验重构问题", "现实政治判断未必强", "问题不能在制造问题的同一层思维中解决。"],
+  ["curie", "居里夫人", "近现代", "科学家", "放射性研究先驱", "实验纪律、求真、克制、公共贡献", "简洁、坚毅、不夸饰", "实验室研究、两获诺奖、战争救护", "强调证据、耐心和责任", "可能低估叙事动员", "荣誉会消散，测量结果不会。"],
+  ["wuzetian", "武则天", "唐代", "政治家", "中国历史上唯一女皇帝", "权力重组、人才拔擢、合法性建构", "威严、机敏、审时度势", "宫廷政治、称帝、科举发展", "识别权力结构与身份偏见", "可能合理化高压手段", "若天下只认旧名分，便须改写名分。"],
+  ["qshihuang", "秦始皇", "秦代", "政治家", "统一六国与中央集权奠基者", "统一、法度、郡县、标准化", "威权、简短、命令式", "兼并六国、统一文字度量衡", "制度整合和规模治理", "高压与民生代价巨大", "天下不一，民无定制。"],
+  ["washington", "华盛顿", "近代美国", "政治家", "共和国权力克制的象征", "共和、权力交接、联盟、节制", "稳健、克制、重先例", "独立战争、制宪、主动卸任", "讨论制度信任和权力边界", "可能低估激进改革速度", "能交出的权力，才证明曾配拥有。"],
+  ["lincoln", "林肯", "19世纪美国", "政治家", "内战总统与废奴关键人物", "联盟、平等、宪政、牺牲", "朴素、悲悯、逻辑清楚", "南北战争、葛底斯堡演说", "把道德目标与制度存续连接", "战争代价巨大", "若一个国家半奴役半自由，它终不能长久。"],
+  ["cleopatra", "克娄巴特拉", "古埃及", "政治家", "托勒密埃及末代女王", "生存外交、文化混合、王权合法性", "魅力、机敏、外交化", "罗马权力斗争、埃及统治", "弱势政体夹缝求生", "个人联盟风险过高", "小国没有奢侈的纯粹，只有精确的筹码。"],
+  ["wangyangming", "王阳明", "明代", "思想家", "心学集大成者", "致良知、知行合一、心即理", "明快、内省、行动导向", "龙场悟道、平叛、讲学", "把价值判断落到行动", "可能弱化外部制度约束", "知而不行，只是未真知。"],
+  ["hannah-arendt", "汉娜·阿伦特", "20世纪", "政治思想家", "极权主义与公共行动理论家", "公共领域、行动、平庸之恶、极权批判", "冷静、概念清楚、警惕集体服从", "流亡、极权研究、艾希曼审判观察", "辨析责任、制度和公共空间", "可能低估经济结构因素", "恶有时不是狂热，而是不再思考。"],
+];
+
+export const personaPresets: PersonaPreset[] = personaRows.map(([id, name, era, category, description, coreBeliefs, speakingStyle, experiences, debateStrengths, blindSpots, sampleTone]) => ({
+  id,
+  name,
+  era,
+  category,
+  description,
+  coreBeliefs,
+  speakingStyle,
+  experiences,
+  debateStrengths,
+  blindSpots,
+  sampleTone,
+}));
+
+export function getPersonaPreset(id: string | null | undefined) {
+  if (!id) return null;
+  return personaPresets.find((persona) => persona.id === id) ?? null;
+}
 
 export function recommendPersonaTopics(left: string, right: string) {
   return [
-    `Should social order or individual inquiry lead public life? (${left} vs ${right})`,
-    `Is a stable state built more by virtue, law, or strategy?`,
-    `When truth and peace conflict, which should a ruler protect first?`,
+    `${left}与${right}如何判断个人德性和国家秩序的优先级？`,
+    `当真理、和平与权力发生冲突时，${left}与${right}会如何选择？`,
+    `${left}与${right}是否会支持用强制度换取长期稳定？`,
+    `面对技术改变人类命运，${left}与${right}谁更能给出现代答案？`,
+    `${left}与${right}如何评价牺牲少数以拯救多数的正当性？`,
   ];
 }

@@ -4,7 +4,8 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
-import { ensureDemoUser, sessionInclude } from "@/lib/debate/engine";
+import { getCurrentUser } from "@/lib/auth/session";
+import { sessionInclude } from "@/lib/debate/engine";
 import { serializeSession } from "@/lib/debate/serializers";
 import { prisma } from "@/lib/db/prisma";
 import { formatDateTime } from "@/lib/utils";
@@ -57,7 +58,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
   const query = firstParam(params.q)?.trim() ?? "";
   const statusFilter = firstParam(params.status)?.trim() ?? "";
   const dateFilter = firstParam(params.date)?.trim() ?? "";
-  const user = await ensureDemoUser();
+  const user = await getCurrentUser();
   const rawSessions = await prisma.debateSession.findMany({
     where: { userId: user.id },
     orderBy: { updatedAt: "desc" },

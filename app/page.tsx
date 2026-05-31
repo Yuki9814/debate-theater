@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
 import { getBillingEntitlement } from "@/lib/billing/service";
-import { ensureDemoUser } from "@/lib/debate/engine";
+import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { conversionScenarios, paidUseCases, trustChecklist } from "@/lib/product/conversion";
 import { formatDate } from "@/lib/utils";
@@ -41,7 +41,7 @@ function planTone(remainingRounds: number) {
 }
 
 export default async function Home() {
-  const user = await ensureDemoUser();
+  const user = await getCurrentUser();
   const [recentSessions, entitlement] = await Promise.all([
     prisma.debateSession.findMany({
       where: { userId: user.id },

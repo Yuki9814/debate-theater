@@ -1,13 +1,13 @@
 import { ProviderSettings } from "@/components/debate/provider-settings";
 import { AppShell } from "@/components/layout/app-shell";
-import { ensureDemoUser } from "@/lib/debate/engine";
+import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { maskApiKey } from "@/lib/ai";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const user = await ensureDemoUser();
+  const user = await getCurrentUser();
   const providers = await prisma.apiProvider.findMany({
     where: { userId: user.id },
     orderBy: { updatedAt: "desc" },

@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { getCurrentUser } from "@/lib/auth/session";
 import { getBillingEntitlement } from "@/lib/billing/service";
-import { ensureDemoUser, sessionInclude } from "@/lib/debate/engine";
+import { sessionInclude } from "@/lib/debate/engine";
 import { exportSessionAsMarkdown } from "@/lib/debate/recap";
 import { serializeSession } from "@/lib/debate/serializers";
 import { prisma } from "@/lib/db/prisma";
@@ -32,7 +33,7 @@ export async function POST(request: Request, context: RouteContext) {
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await ensureDemoUser();
+    const user = await getCurrentUser();
     const body = exportSchema.parse(await request.json());
     const session = await prisma.debateSession.findUnique({
       where: { id: sessionId },

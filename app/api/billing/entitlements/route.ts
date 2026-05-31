@@ -1,5 +1,5 @@
 import { getBillingEntitlement } from "@/lib/billing/service";
-import { ensureDemoUser } from "@/lib/debate/engine";
+import { getCurrentUser } from "@/lib/auth/session";
 import { errorResponse } from "@/lib/errors";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 
@@ -11,7 +11,7 @@ export async function GET(request: Request) {
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await ensureDemoUser();
+    const user = await getCurrentUser();
     const entitlement = await getBillingEntitlement(user.id);
     return Response.json({ entitlement });
   } catch (error) {
