@@ -28,7 +28,7 @@ function statusTone(status: string): BadgeTone {
 function statusText(status: string) {
   const map: Record<string, string> = {
     draft: "已初始化",
-    running: "演算中",
+    running: "开庭中",
     paused: "已暂停",
     awaiting_confirmation: "待核准",
     ended: "已结案",
@@ -57,22 +57,22 @@ export default async function DashboardPage() {
           <div>
             <div className="page-kicker">
               <Terminal className="h-4 w-4 text-[var(--cinnabar)]" />
-              Master Console
+              卷宗总台
             </div>
-            <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)] sm:text-5xl">剧场总控台</h1>
+            <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)] sm:text-5xl">法庭总控台</h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
-              近期辩局、运行状态与算力方案集中在此处。
+              近期卷宗、开庭状态与算力方案集中在此处。
             </p>
           </div>
           <Link className={buttonVariants({ variant: "primary", size: "lg" })} href="/debate/setup">
             <Sparkles className="h-4 w-4" />
-            创建新剧目
+            递交战书
           </Link>
         </header>
 
         <section className="grid gap-4 md:grid-cols-3">
           {[
-            { label: "运行中", value: runningCount, icon: Clock, tone: "emerald" as const },
+            { label: "开庭中", value: runningCount, icon: Clock, tone: "emerald" as const },
             { label: "已结案", value: closedCount, icon: CheckCircle2, tone: "rose" as const },
             { label: "累计回合", value: totalRounds, icon: PauseCircle, tone: "cyan" as const },
           ].map((item) => {
@@ -93,8 +93,8 @@ export default async function DashboardPage() {
           <Panel className="p-0">
             <div className="flex items-center justify-between border-b border-[var(--line)] p-5 sm:p-6">
               <div>
-                <Badge tone="cyan">时间线</Badge>
-                <h2 className="mt-3 font-serif text-2xl font-bold text-[var(--ink)]">剧目演进</h2>
+                <Badge tone="cyan">卷宗线</Badge>
+                <h2 className="mt-3 font-serif text-2xl font-bold text-[var(--ink)]">庭审演进</h2>
               </div>
               <Link className={buttonVariants({ variant: "ghost", size: "sm" })} href="/history">
                 档案馆
@@ -105,7 +105,7 @@ export default async function DashboardPage() {
             <div className="p-5 sm:p-6">
               {sessions.length === 0 ? (
                 <div className="rounded-md border border-dashed border-[var(--line-strong)] p-12 text-center text-sm text-[var(--muted)]">
-                  还没有辩局。
+                  还没有立卷记录。
                 </div>
               ) : (
                 <div className="relative space-y-0 before:absolute before:left-3 before:top-3 before:h-[calc(100%-1.5rem)] before:w-px before:bg-[var(--line)]">
@@ -123,7 +123,7 @@ export default async function DashboardPage() {
                               {session.topic}
                             </h3>
                             <div className="mt-2 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
-                              <span>ID {session.id.slice(0, 8)}</span>
+                              <span>卷宗 {session.id.slice(0, 8)}</span>
                               <span>{formatDateTime(session.updatedAt)}</span>
                               <span>第 {session.currentRound}/{session.maxRounds} 轮</span>
                             </div>
@@ -161,8 +161,8 @@ export default async function DashboardPage() {
                 <h2 className="font-serif text-xl font-bold text-[var(--ink)]">安全规约</h2>
               </div>
               <div className="mt-5 space-y-4 text-sm leading-7 text-[var(--muted)]">
-                <p>连续低分、轮数上限与人工断点共同约束辩论进程。</p>
-                <p>真实 API 密钥只在服务端加密存储。</p>
+                <p>连续低分、轮数上限与人工断点共同约束庭审进程。</p>
+                <p>真实接口密钥只在服务端加密存储。</p>
               </div>
             </Panel>
           </div>

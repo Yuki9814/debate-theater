@@ -53,17 +53,17 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
         <div className="border-b border-[var(--line)] pb-6">
           <div className="page-kicker">
             <KeyRound className="h-4 w-4 text-[var(--cinnabar)]" />
-            Provider Vault
+            密钥舱
           </div>
           <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)]">密钥舱</h1>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
-            配置辩手与裁判可调用的模型服务商。
+            配置甲乙席与中央裁判可调用的模型接入器。
           </p>
         </div>
 
         <div className="mt-7 space-y-5">
           <label className="space-y-2 block">
-            <span className="field-label">服务供应商</span>
+            <span className="field-label">服务接入器</span>
             <select
               className="ink-select"
               onChange={(event) => setForm((current) => ({ ...current, providerName: event.target.value }))}
@@ -76,7 +76,7 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
           </label>
 
           <label className="space-y-2 block">
-            <span className="field-label">Base URL</span>
+            <span className="field-label">接口基址</span>
             <input
               className="ink-input"
               onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))}
@@ -86,7 +86,7 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
           </label>
 
           <label className="space-y-2 block">
-            <span className="field-label">API Key</span>
+            <span className="field-label">接口密钥</span>
             <input
               className="ink-input"
               onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))}
@@ -127,7 +127,7 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
                 <h2 className="font-serif text-xl font-bold text-[var(--ink)]">服务端密存</h2>
               </div>
               <p className="mt-3 text-sm leading-7 text-[var(--muted)]">
-                授权密钥提交至 Next.js 服务端后写入本地 SQLite，页面只显示脱敏预览。
+                授权密钥提交至服务端后写入本地 SQLite，页面只显示脱敏预览。
               </p>
             </div>
           </div>

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Gauge, Scale, ShieldCheck, SlidersHorizontal, Sparkles } from "lucide-react";
+import { ArrowRight, ChevronDown, Gauge, Scale, ShieldCheck, SlidersHorizontal, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
@@ -91,7 +91,7 @@ function ProviderSelect({
         </select>
       </label>
       <label className="space-y-2">
-        <span className="field-label">模型</span>
+        <span className="field-label">模型标识</span>
         <input
           className="ink-input"
           onChange={(event) => onModelChange(event.target.value)}
@@ -135,11 +135,25 @@ export function SetupForm() {
 
   async function submit() {
     setError(null);
+    const sideA = form.sideA?.trim() ?? "";
+    const sideB = form.sideB?.trim() ?? "";
+    if (form.mode === "custom" && (!sideA || !sideB)) {
+      setError("手动立场需要同时写明甲方与乙方主张，方可立卷。");
+      return;
+    }
+
+    const preparedForm: DebateSetupInput = {
+      ...form,
+      topic: form.topic.trim(),
+      sideA: sideA || undefined,
+      sideB: sideB || undefined,
+    };
+
     startTransition(async () => {
       const response = await fetch("/api/debate/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(preparedForm),
       });
       const payload = (await response.json()) as { session?: { id: string }; error?: string };
 
@@ -152,17 +166,20 @@ export function SetupForm() {
     });
   }
 
+  const customStanceMissing =
+    form.mode === "custom" && (!(form.sideA ?? "").trim() || !(form.sideB ?? "").trim());
+
   return (
     <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-      <Panel className="p-5 sm:p-7">
+      <Panel className="docket-paper p-5 sm:p-7">
         <div className="border-b border-[var(--line)] pb-6">
           <div className="page-kicker">
             <SlidersHorizontal className="h-4 w-4 text-[var(--cinnabar)]" />
-            Debate Brief
+            立卷战书
           </div>
           <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)]">开局战书</h1>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
-            写下议题、立场与裁判参数，系统将建立一个新的辩论舱。
+            写下议题、两席主张与裁判规约，系统将开出一份可复盘的思想卷宗。
           </p>
         </div>
 
@@ -170,7 +187,7 @@ export function SetupForm() {
           <section className="space-y-3">
             <span className="field-label justify-start gap-2">
               <Sparkles className="h-3.5 w-3.5 text-[var(--cinnabar)]" />
-              推荐辩题
+              待审议题
             </span>
             <div className="grid gap-2">
               {PRESET_TOPICS.map((preset, index) => (
@@ -190,11 +207,11 @@ export function SetupForm() {
           </section>
 
           <label className="space-y-2 block">
-            <span className="field-label">辩论主题</span>
+            <span className="field-label">议题正文</span>
             <textarea
               className="ink-textarea min-h-[132px] text-base"
               onChange={(event) => update("topic", event.target.value)}
-              placeholder="请输入本次推演的核心议题..."
+              placeholder="写下本次评议的核心议题..."
               value={form.topic}
             />
           </label>
@@ -207,12 +224,12 @@ export function SetupForm() {
                 onChange={(event) => update("mode", event.target.value as DebateSetupInput["mode"])}
                 value={form.mode}
               >
-                <option value="auto">自动分配对立立场</option>
-                <option value="custom">手动定义两侧立场</option>
+                <option value="auto">由系统拟定甲乙席</option>
+                <option value="custom">手写甲乙两席主张</option>
               </select>
             </label>
             <label className="space-y-2">
-              <span className="field-label">呈现模式</span>
+              <span className="field-label">判词呈现</span>
               <select
                 className="ink-select"
                 onChange={(event) =>
@@ -220,7 +237,7 @@ export function SetupForm() {
                 }
                 value={form.outputMode}
               >
-                <option value="theater">剧场摘录</option>
+                <option value="theater">庭审摘录</option>
                 <option value="sentence">逐句拆解</option>
                 <option value="full">原文整段</option>
               </select>
@@ -230,18 +247,18 @@ export function SetupForm() {
           {form.mode === "custom" && (
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-2">
-                <span className="field-label">甲方主张</span>
+                <span className="field-label">甲方席主张</span>
                 <input
-                  className="ink-input"
+                  className={customStanceMissing && !(form.sideA ?? "").trim() ? "ink-input border-[var(--rose)]" : "ink-input"}
                   onChange={(event) => update("sideA", event.target.value)}
                   placeholder="请输入甲方观点..."
                   value={form.sideA ?? ""}
                 />
               </label>
               <label className="space-y-2">
-                <span className="field-label">乙方主张</span>
+                <span className="field-label">乙方席主张</span>
                 <input
-                  className="ink-input"
+                  className={customStanceMissing && !(form.sideB ?? "").trim() ? "ink-input border-[var(--rose)]" : "ink-input"}
                   onChange={(event) => update("sideB", event.target.value)}
                   placeholder="请输入乙方观点..."
                   value={form.sideB ?? ""}
@@ -250,118 +267,133 @@ export function SetupForm() {
             </div>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <NumberField
-              label="最大回合"
-              max={200}
-              min={1}
-              onChange={(value) => update("maxRounds", value)}
-              suffix="1-200"
-              value={form.maxRounds}
-            />
-            <NumberField
-              label="暂停频率"
-              max={50}
-              min={1}
-              onChange={(value) => update("pauseEveryRounds", value)}
-              suffix="每 N 轮"
-              value={form.pauseEveryRounds}
-            />
-            <NumberField
-              label="低分线"
-              max={100}
-              min={1}
-              onChange={(value) => update("lowScoreThreshold", value)}
-              suffix="1-100"
-              value={form.lowScoreThreshold}
-            />
-            <NumberField
-              label="连续上限"
-              max={20}
-              min={1}
-              onChange={(value) => update("consecutiveLowLimit", value)}
-              suffix="1-20"
-              value={form.consecutiveLowLimit}
-            />
-          </div>
+          <details className="advanced-brief rounded-md border border-[var(--line)] bg-white/42">
+            <summary className="flex cursor-pointer items-center justify-between gap-4 p-4">
+              <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--ink)]">
+                <Scale className="h-4 w-4 text-[var(--lapis)]" />
+                高级裁判参数
+              </span>
+              <span className="hidden shrink-0 items-center gap-2 text-xs text-[var(--muted)] sm:flex">
+                回合、断点、模型与密钥舱
+                <ChevronDown className="h-4 w-4" />
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-[var(--muted)] sm:hidden" />
+            </summary>
+            <div className="space-y-6 border-t border-[var(--line)] p-4">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <NumberField
+                  label="最大回合"
+                  max={200}
+                  min={1}
+                  onChange={(value) => update("maxRounds", value)}
+                  suffix="1-200"
+                  value={form.maxRounds}
+                />
+                <NumberField
+                  label="断点频率"
+                  max={50}
+                  min={1}
+                  onChange={(value) => update("pauseEveryRounds", value)}
+                  suffix="每 N 轮"
+                  value={form.pauseEveryRounds}
+                />
+                <NumberField
+                  label="低分线"
+                  max={100}
+                  min={1}
+                  onChange={(value) => update("lowScoreThreshold", value)}
+                  suffix="1-100"
+                  value={form.lowScoreThreshold}
+                />
+                <NumberField
+                  label="连续低分上限"
+                  max={20}
+                  min={1}
+                  onChange={(value) => update("consecutiveLowLimit", value)}
+                  suffix="1-20"
+                  value={form.consecutiveLowLimit}
+                />
+              </div>
 
-          <label className="space-y-3 block">
-            <span className="field-label">
-              裁判置信阈值
-              <span>{Math.round(form.judgeConfidence * 100)}%</span>
-            </span>
-            <input
-              className="w-full accent-[var(--cinnabar)]"
-              max="1"
-              min="0.3"
-              onChange={(event) => update("judgeConfidence", Number(event.target.value))}
-              step="0.05"
-              type="range"
-              value={form.judgeConfidence}
-            />
-          </label>
+              <label className="space-y-3 block">
+                <span className="field-label">
+                  裁判置信阈值
+                  <span>{Math.round(form.judgeConfidence * 100)}%</span>
+                </span>
+                <input
+                  className="w-full accent-[var(--cinnabar)]"
+                  max="1"
+                  min="0.3"
+                  onChange={(event) => update("judgeConfidence", Number(event.target.value))}
+                  step="0.05"
+                  type="range"
+                  value={form.judgeConfidence}
+                />
+              </label>
 
-          <section className="space-y-3 border-t border-[var(--line)] pt-6">
-            <span className="field-label justify-start gap-2">
-              <Scale className="h-3.5 w-3.5 text-[var(--lapis)]" />
-              算力分配
-            </span>
-            <ProviderSelect
-              label="甲方辩手"
-              model={form.modelA ?? ""}
-              onModelChange={(value) => update("modelA", value)}
-              onProviderChange={(value) => update("providerA", value)}
-              value={form.providerA}
-            />
-            <ProviderSelect
-              label="乙方辩手"
-              model={form.modelB ?? ""}
-              onModelChange={(value) => update("modelB", value)}
-              onProviderChange={(value) => update("providerB", value)}
-              value={form.providerB}
-            />
-            <ProviderSelect
-              label="中央裁判"
-              model={form.modelJudge ?? ""}
-              onModelChange={(value) => update("modelJudge", value)}
-              onProviderChange={(value) => update("providerJudge", value)}
-              value={form.providerJudge}
-            />
-          </section>
+              <section className="space-y-3">
+                <span className="field-label justify-start gap-2">
+                  <Scale className="h-3.5 w-3.5 text-[var(--lapis)]" />
+                  密钥舱与算力席次
+                </span>
+                <ProviderSelect
+                  label="甲方席代理"
+                  model={form.modelA ?? ""}
+                  onModelChange={(value) => update("modelA", value)}
+                  onProviderChange={(value) => update("providerA", value)}
+                  value={form.providerA}
+                />
+                <ProviderSelect
+                  label="乙方席代理"
+                  model={form.modelB ?? ""}
+                  onModelChange={(value) => update("modelB", value)}
+                  onProviderChange={(value) => update("providerB", value)}
+                  value={form.providerB}
+                />
+                <ProviderSelect
+                  label="中央裁判席"
+                  model={form.modelJudge ?? ""}
+                  onModelChange={(value) => update("modelJudge", value)}
+                  onProviderChange={(value) => update("providerJudge", value)}
+                  value={form.providerJudge}
+                />
+              </section>
+            </div>
+          </details>
 
           {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]">{error}</p> : null}
 
           <Button className="w-full" disabled={isPending} onClick={submit} size="lg">
-            {isPending ? "正在建立辩论舱..." : "建立辩论舱"}
+            {isPending ? "正在立卷..." : "立卷并开庭"}
             <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
       </Panel>
 
-      <div className="space-y-4">
+      <div className="hidden space-y-4 xl:block">
         {[
           {
-            title: "熔断护栏",
-            body: "最高轮数、低分线、连续低分上限会一起限制异常消耗。",
+            title: "断点复核",
+            body: "最高轮数、低分线与连续低分上限共同构成庭审护栏。",
             icon: Gauge,
             tone: "cyan" as const,
           },
           {
-            title: "中文论辩",
-            body: "辩手围绕主张给出连续陈词，裁判逐轮生成分牌。",
+            title: "中文判词",
+            body: "两席围绕主张连续陈词，中央裁判逐轮留下判词与分牌。",
             icon: Sparkles,
             tone: "rose" as const,
           },
           {
-            title: "密钥隔离",
-            body: "真实服务商密钥不进入浏览器上下文。",
+            title: "密钥舱",
+            body: "真实服务商密钥封存在服务端，浏览器只接触本地路由。",
             icon: ShieldCheck,
             tone: "emerald" as const,
           },
         ].map((item) => {
           const Icon = item.icon;
           return (
-            <Panel className="p-5" key={item.title}>
+            <Panel className="p-5 shadow-none" key={item.title}>
               <div className="flex items-start gap-4">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-white/45">
                   <Icon className="h-5 w-5 text-[var(--cinnabar)]" />

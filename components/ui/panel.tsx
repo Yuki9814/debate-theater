@@ -10,7 +10,7 @@ export function Panel({
   return (
     <section
       className={cn(
-        "rounded-md border border-[var(--line)] bg-[rgba(255,255,255,0.58)] shadow-[var(--shadow)] backdrop-blur-sm",
+        "min-w-0 rounded-md border border-[var(--line)] bg-[var(--bg-glass)] shadow-[var(--shadow)] backdrop-blur-xl",
         className,
       )}
     >

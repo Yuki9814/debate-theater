@@ -61,6 +61,7 @@ pnpm build
 
 ## Launch Readiness Docs
 
+- `docs/evaluation/` contains the Codex, Gemini CLI, and Grok Build scoring rubrics.
 - `docs/billing-readiness.md` documents monetization and subscription boundaries.
 - `docs/security-readiness.md` documents key handling, rate limiting, and production security gaps.
 

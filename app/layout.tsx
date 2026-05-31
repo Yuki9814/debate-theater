@@ -11,9 +11,25 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const themeScript = `
+    (function () {
+      try {
+        var theme = localStorage.getItem("lunheng-theme") || "dark";
+        document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
+        document.documentElement.style.colorScheme = document.documentElement.dataset.theme;
+      } catch (error) {
+        document.documentElement.dataset.theme = "dark";
+        document.documentElement.style.colorScheme = "dark";
+      }
+    })();
+  `;
+
   return (
-    <html lang="zh-CN" className="h-full antialiased">
-      <body className="min-h-full">{children}</body>
+    <html lang="zh-CN" className="h-full antialiased" data-theme="dark" suppressHydrationWarning>
+      <body className="min-h-full">
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        {children}
+      </body>
     </html>
   );
 }

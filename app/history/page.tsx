@@ -19,7 +19,7 @@ function statusTone(status: string): BadgeTone {
 function statusText(status: string) {
   const map: Record<string, string> = {
     draft: "已初始化",
-    running: "演算中",
+    running: "开庭中",
     paused: "已暂停",
     awaiting_confirmation: "待核准",
     ended: "已结案",
@@ -52,18 +52,18 @@ export default async function HistoryPage() {
         <header className="border-b border-[var(--line)] pb-7">
           <div className="page-kicker">
             <Archive className="h-4 w-4 text-[var(--cinnabar)]" />
-            Local Archive
+            本地卷宗
           </div>
-          <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)] sm:text-5xl">档案馆</h1>
+          <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)] sm:text-5xl">卷宗馆</h1>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
-            所有辩局记录均来自本地 SQLite。
+            所有庭审记录均来自本地 SQLite 卷宗。
           </p>
         </header>
 
         {sessions.length === 0 ? (
           <Panel className="p-12 text-center">
             <Archive className="mx-auto h-10 w-10 text-[var(--muted-light)]" />
-            <p className="mt-4 text-sm text-[var(--muted)]">暂无已沉淀的辩局档案。</p>
+            <p className="mt-4 text-sm text-[var(--muted)]">暂无已沉淀的庭审卷宗。</p>
           </Panel>
         ) : (
           <div className="space-y-3">

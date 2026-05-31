@@ -4,16 +4,29 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --paper: #f7f6f0;
+:root,
+[data-theme="light"] {
+  --bg-base: #f7f6f0;
+  --bg-elevated: #fbfaf6;
+  --bg-glass: rgba(255, 255, 255, 0.68);
+  --bg-glass-strong: rgba(247, 246, 240, 0.94);
+  --surface-hover: rgba(255, 255, 255, 0.84);
+  --fg-primary: #1d1a16;
+  --fg-secondary: #39332c;
+  --fg-muted: #746d62;
+  --border-default: #d8d0c2;
+  --border-strong: #beb19d;
+  --glow-cinnabar: 0 10px 28px rgba(182, 78, 61, 0.22);
+
+  --paper: var(--bg-base);
   --paper-quiet: #efebe1;
   --paper-warm: #fbfaf6;
-  --ink: #1d1a16;
-  --ink-soft: #39332c;
-  --muted: #746d62;
+  --ink: var(--fg-primary);
+  --ink-soft: var(--fg-secondary);
+  --muted: var(--fg-muted);
   --muted-light: #9a9287;
-  --line: #d8d0c2;
-  --line-strong: #beb19d;
+  --line: var(--border-default);
+  --line-strong: var(--border-strong);
   --cinnabar: #b64e3d;
   --cinnabar-soft: #f4ddd7;
   --jade: #2f7569;
@@ -24,7 +37,88 @@
   --brass-soft: #eee5d2;
   --rose: #9c3f47;
   --rose-soft: #f0dadd;
-  --shadow: 0 24px 70px rgba(55, 43, 28, 0.12);
+  --shadow: 0 12px 36px rgba(55, 43, 28, 0.075);
+
+  --body-bg:
+    linear-gradient(90deg, rgba(29, 26, 22, 0.022) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(29, 26, 22, 0.018) 1px, transparent 1px),
+    var(--paper);
+  --canvas-bg:
+    repeating-linear-gradient(0deg, rgba(29, 26, 22, 0.016) 0, rgba(29, 26, 22, 0.016) 1px, transparent 1px, transparent 19px),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(239, 235, 225, 0.64));
+  --grain-opacity: 0.32;
+  --grain-bg:
+    linear-gradient(120deg, rgba(29, 26, 22, 0.04), transparent 44%, rgba(155, 117, 53, 0.035)),
+    repeating-linear-gradient(90deg, rgba(29, 26, 22, 0.018) 0 1px, transparent 1px 7px);
+  --grain-blend: multiply;
+  --docket-bg:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(251, 250, 246, 0.64)),
+    repeating-linear-gradient(0deg, transparent 0, transparent 27px, rgba(29, 26, 22, 0.045) 28px);
+  --input-bg: rgba(255, 255, 255, 0.62);
+  --input-focus-bg: rgba(255, 255, 255, 0.9);
+  --inline-surface: rgba(255, 255, 255, 0.55);
+  --sidebar-bg: rgba(247, 246, 240, 0.88);
+  --console-bg: rgba(247, 246, 240, 0.95);
+  --console-shadow: 0 -12px 34px rgba(55, 43, 28, 0.12);
+}
+
+[data-theme="dark"] {
+  --bg-base: #090d10;
+  --bg-elevated: #10161b;
+  --bg-glass: rgba(17, 23, 29, 0.76);
+  --bg-glass-strong: rgba(22, 29, 36, 0.9);
+  --surface-hover: rgba(35, 45, 54, 0.82);
+  --fg-primary: #f4eee5;
+  --fg-secondary: #d7cec3;
+  --fg-muted: #a79f94;
+  --border-default: rgba(241, 226, 204, 0.16);
+  --border-strong: rgba(241, 226, 204, 0.28);
+  --glow-cinnabar: 0 18px 48px rgba(205, 91, 72, 0.24);
+
+  --paper: var(--bg-base);
+  --paper-quiet: #171d22;
+  --paper-warm: #f4eee5;
+  --ink: var(--fg-primary);
+  --ink-soft: var(--fg-secondary);
+  --muted: var(--fg-muted);
+  --muted-light: #80786f;
+  --line: var(--border-default);
+  --line-strong: var(--border-strong);
+  --cinnabar: #d16655;
+  --cinnabar-soft: #3b1d1b;
+  --jade: #66b7a6;
+  --jade-soft: #14322e;
+  --lapis: #78a9d6;
+  --lapis-soft: #172a3b;
+  --brass: #d1ad66;
+  --brass-soft: #382d18;
+  --rose: #db7788;
+  --rose-soft: #3a1b25;
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.36);
+
+  --body-bg:
+    linear-gradient(90deg, rgba(244, 238, 229, 0.035) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(244, 238, 229, 0.026) 1px, transparent 1px),
+    linear-gradient(180deg, #0d1216 0%, var(--paper) 44%, #070a0d 100%);
+  --canvas-bg:
+    linear-gradient(150deg, rgba(209, 102, 85, 0.1), transparent 34%),
+    linear-gradient(210deg, rgba(120, 169, 214, 0.11), transparent 38%),
+    repeating-linear-gradient(0deg, rgba(244, 238, 229, 0.018) 0, rgba(244, 238, 229, 0.018) 1px, transparent 1px, transparent 19px),
+    linear-gradient(135deg, rgba(16, 22, 27, 0.86), rgba(8, 12, 15, 0.94));
+  --grain-opacity: 0.22;
+  --grain-bg:
+    linear-gradient(120deg, rgba(244, 238, 229, 0.08), transparent 44%, rgba(209, 173, 102, 0.045)),
+    repeating-linear-gradient(90deg, rgba(244, 238, 229, 0.028) 0 1px, transparent 1px 7px);
+  --grain-blend: screen;
+  --docket-bg:
+    linear-gradient(180deg, rgba(26, 34, 41, 0.86), rgba(12, 17, 21, 0.72)),
+    repeating-linear-gradient(0deg, transparent 0, transparent 27px, rgba(244, 238, 229, 0.035) 28px);
+  --input-bg: rgba(10, 14, 18, 0.68);
+  --input-focus-bg: rgba(16, 22, 27, 0.92);
+  --inline-surface: rgba(18, 25, 31, 0.62);
+  --sidebar-bg: rgba(9, 13, 16, 0.72);
+  --console-bg: rgba(9, 13, 16, 0.9);
+  --console-shadow: 0 -18px 44px rgba(0, 0, 0, 0.34);
 }
 
 * {
@@ -38,10 +132,7 @@ html {
 
 body {
   min-height: 100%;
-  background:
-    linear-gradient(90deg, rgba(29, 26, 22, 0.035) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(29, 26, 22, 0.026) 1px, transparent 1px),
-    var(--paper);
+  background: var(--body-bg);
   background-size: 48px 48px;
   color: var(--ink);
   font-family: "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
@@ -70,9 +161,7 @@ textarea {
 
 .app-canvas {
   min-height: 100vh;
-  background:
-    repeating-linear-gradient(0deg, rgba(29, 26, 22, 0.025) 0, rgba(29, 26, 22, 0.025) 1px, transparent 1px, transparent 19px),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(239, 235, 225, 0.72));
+  background: var(--canvas-bg);
 }
 
 .paper-grain {
@@ -80,15 +169,23 @@ textarea {
   position: fixed;
   inset: 0;
   z-index: 0;
-  opacity: 0.48;
-  background-image:
-    linear-gradient(120deg, rgba(29, 26, 22, 0.04), transparent 44%, rgba(155, 117, 53, 0.035)),
-    repeating-linear-gradient(90deg, rgba(29, 26, 22, 0.018) 0 1px, transparent 1px 7px);
-  mix-blend-mode: multiply;
+  opacity: var(--grain-opacity);
+  background-image: var(--grain-bg);
+  mix-blend-mode: var(--grain-blend);
 }
 
 .content-frame {
   z-index: 1;
+  min-width: 0;
+}
+
+h1,
+h2,
+h3,
+p,
+blockquote,
+.field-label {
+  overflow-wrap: anywhere;
 }
 
 .page-kicker {
@@ -115,13 +212,37 @@ textarea {
   border-top: 1px solid var(--line);
 }
 
+.docket-rule {
+  background:
+    linear-gradient(90deg, transparent, rgba(29, 26, 22, 0.18), transparent);
+  height: 1px;
+}
+
+.docket-paper {
+  background: var(--docket-bg);
+}
+
+.court-focus {
+  box-shadow:
+    inset 0 3px 0 currentColor,
+    0 20px 54px rgba(55, 43, 28, 0.12);
+}
+
+details.advanced-brief > summary {
+  list-style: none;
+}
+
+details.advanced-brief > summary::-webkit-details-marker {
+  display: none;
+}
+
 .ink-input,
 .ink-select,
 .ink-textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--input-bg);
   color: var(--ink);
   outline: none;
   transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
@@ -149,8 +270,21 @@ textarea {
 .ink-select:focus,
 .ink-textarea:focus {
   border-color: var(--cinnabar);
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 0 3px rgba(182, 78, 61, 0.12);
+  background: var(--input-focus-bg);
+  box-shadow: 0 0 0 3px rgba(209, 102, 85, 0.18);
+}
+
+.bg-white\/35,
+.bg-white\/40,
+.bg-white\/42,
+.bg-white\/45,
+.bg-white\/50,
+.bg-white\/55 {
+  background-color: var(--inline-surface) !important;
+}
+
+[class*="hover:bg-white/"]:hover {
+  background-color: var(--surface-hover) !important;
 }
 
 .field-label {

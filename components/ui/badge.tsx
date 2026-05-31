@@ -13,7 +13,7 @@ const tones = {
   amber: "border-[var(--brass)]/35 bg-[var(--brass-soft)] text-[var(--brass)]",
   rose: "border-[var(--cinnabar)]/35 bg-[var(--cinnabar-soft)] text-[var(--cinnabar)]",
   cyan: "border-[var(--lapis)]/35 bg-[var(--lapis-soft)] text-[var(--lapis)]",
-  neutral: "border-[var(--line)] bg-white/45 text-[var(--muted)]",
+  neutral: "border-[var(--line)] bg-[var(--bg-glass)] text-[var(--muted)]",
 };
 
 export function Badge({ children, tone = "neutral", className }: BadgeProps) {

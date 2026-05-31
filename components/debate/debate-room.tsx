@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   Activity,
+  ChevronDown,
+  ChevronUp,
   CircleStop,
   FastForward,
   History,
@@ -45,7 +47,7 @@ function statusTone(status: string): BadgeTone {
 function statusText(status: string) {
   const map: Record<string, string> = {
     draft: "已部署",
-    running: "辩论中",
+    running: "开庭中",
     paused: "断点暂停",
     awaiting_confirmation: "等待核准",
     ended: "裁决结案",
@@ -58,7 +60,7 @@ function outputModeText(mode: string) {
   const map: Record<string, string> = {
     full: "整段输出",
     sentence: "逐句拆解",
-    theater: "剧场摘录",
+    theater: "庭审摘录",
   };
   return map[mode] ?? mode;
 }
@@ -131,8 +133,13 @@ function DebaterPanel({
   return (
     <Panel
       className={cn(
-        "flex min-h-[560px] flex-col overflow-hidden p-0 transition",
-        isActive ? (isA ? "border-[var(--cinnabar)]" : "border-[var(--lapis)]") : "opacity-80",
+        "docket-paper flex min-h-[420px] flex-col overflow-hidden p-0 transition md:min-h-[560px]",
+        isActive
+          ? cn(
+              "court-focus",
+              isA ? "border-[var(--cinnabar)] text-[var(--cinnabar)]" : "border-[var(--lapis)] text-[var(--lapis)]",
+            )
+          : "opacity-80",
       )}
     >
       <div className={cn("border-b border-[var(--line)] p-5", isA ? "bg-[var(--cinnabar-soft)]/35" : "bg-[var(--lapis-soft)]/45")}>
@@ -159,7 +166,7 @@ function DebaterPanel({
                         isA ? "bg-[var(--cinnabar)]" : "bg-[var(--lapis)]",
                       )}
                     />
-                    发言权重上升
+                    聚光陈词
                   </span>
                 ) : null}
               </div>
@@ -180,7 +187,7 @@ function DebaterPanel({
         ) : (
           <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-3 text-center text-sm text-[var(--muted)]">
             <Activity className="h-5 w-5 ink-pulse" />
-            等待本轮陈词。
+            等待本席陈词落卷。
           </div>
         )}
       </div>
@@ -194,7 +201,7 @@ function JudgePanel({ session }: { session: DebateSessionDTO }) {
   const bAverage = averageFor(session.rounds, "B");
 
   return (
-    <Panel className="overflow-hidden p-0">
+    <Panel className="docket-paper overflow-hidden p-0">
       <div className="border-b border-[var(--line)] p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-3">
@@ -223,13 +230,13 @@ function JudgePanel({ session }: { session: DebateSessionDTO }) {
         <div className="rounded-md border border-[var(--line)] bg-white/42 p-4">
           <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-[var(--muted)]">
             <UserCheck className="h-4 w-4" />
-            裁判意见
+            本轮判词
           </div>
           <p className="line-clamp-5 text-sm leading-7 text-[var(--ink-soft)]">
-            {latest?.judgeSummary ?? "等待首轮推演完成，裁判将出示论点研判报告。"}
+            {latest?.judgeSummary ?? "等待首轮陈词落卷，裁判将出示判词。"}
           </p>
           <div className="mt-4 flex flex-wrap gap-3 border-t border-[var(--line)] pt-3 text-xs text-[var(--muted)]">
-            <span>间隔暂停：{session.pauseEveryRounds} 轮</span>
+            <span>断点复核：{session.pauseEveryRounds} 轮</span>
             <span>低分线：{session.lowScoreThreshold}</span>
           </div>
         </div>
@@ -237,7 +244,7 @@ function JudgePanel({ session }: { session: DebateSessionDTO }) {
         <div className="rounded-md border border-[var(--line)] bg-white/42 p-4">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-[var(--ink)]">
             <Trophy className="h-4 w-4 text-[var(--brass)]" />
-            累计平均分
+            席次均分
           </div>
           <div className="space-y-4">
             {[
@@ -267,7 +274,7 @@ function RoundTimeline({ rounds }: { rounds: DebateRoundDTO[] }) {
       <div className="mb-4 flex items-center justify-between border-b border-[var(--line)] pb-3">
         <div className="flex items-center gap-2">
           <History className="h-4 w-4 text-[var(--lapis)]" />
-          <h2 className="font-serif text-lg font-bold text-[var(--ink)]">研判进程</h2>
+          <h2 className="font-serif text-lg font-bold text-[var(--ink)]">卷宗进程</h2>
         </div>
         <Badge tone="cyan">{rounds.length} 回合</Badge>
       </div>
@@ -275,7 +282,7 @@ function RoundTimeline({ rounds }: { rounds: DebateRoundDTO[] }) {
       <div className="thin-scrollbar flex-1 space-y-3 overflow-y-auto pr-1">
         {rounds.length === 0 ? (
           <div className="flex min-h-[200px] items-center justify-center text-center text-sm text-[var(--muted)]">
-            暂无日志切片。
+            暂无回合卷页。
           </div>
         ) : (
           rounds
@@ -284,7 +291,7 @@ function RoundTimeline({ rounds }: { rounds: DebateRoundDTO[] }) {
             .map((round) => (
               <article className="rounded-md border border-[var(--line)] bg-white/40 p-3" key={round.id}>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-2">
-                  <div className="text-sm font-bold text-[var(--ink)]">回合 {round.roundNumber}</div>
+                  <div className="text-sm font-bold text-[var(--ink)]">第 {round.roundNumber} 轮</div>
                   <div className="text-xs text-[var(--muted)]">{formatDateTime(round.createdAt)}</div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs">
@@ -326,6 +333,7 @@ function ControlConsole({
   const canRun = session.status === "draft" || session.status === "paused" || session.status === "awaiting_confirmation";
   const isRunning = session.status === "running";
   const isClosed = session.status === "ended" || session.status === "stopped";
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const statusColor = isRunning
     ? "bg-[var(--jade)]"
@@ -334,45 +342,55 @@ function ControlConsole({
       : "bg-[var(--muted-light)]";
 
   return (
-    <div className="fixed inset-x-0 bottom-[74px] z-40 border-t border-[var(--line)] bg-[rgba(247,246,240,0.94)] px-4 py-3 shadow-[0_-16px_42px_rgba(55,43,28,0.12)] backdrop-blur-xl md:bottom-0 md:left-[76px]">
+    <div className="fixed inset-x-3 bottom-3 z-40 rounded-md border border-[var(--line)] bg-[var(--console-bg)] px-3 py-2 shadow-[var(--console-shadow)] backdrop-blur-xl md:inset-x-0 md:bottom-0 md:left-[76px] md:rounded-none md:border-x-0 md:border-b-0 md:px-4 md:py-3">
       <div className="mx-auto flex max-w-[1364px] flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full ink-pulse", statusColor)} />
           <div>
-            <span className="block text-xs text-[var(--muted)]">中枢状态</span>
+            <span className="block text-xs text-[var(--muted)]">庭务状态</span>
             <span className="mt-0.5 block text-sm font-semibold text-[var(--ink)]">{statusText(session.status)}</span>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <button
+          aria-expanded={isExpanded}
+          className="flex items-center gap-1 rounded-md border border-[var(--line)] bg-white/55 px-3 py-2 text-xs font-semibold text-[var(--ink-soft)] md:hidden"
+          onClick={() => setIsExpanded((value) => !value)}
+          type="button"
+        >
+          庭务
+          {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+        </button>
+
+        <div className={cn("flex flex-wrap items-center gap-2", !isExpanded && "hidden md:flex")}>
           {session.status === "draft" ? (
             <Button disabled={isPending || isClosed} onClick={onStart} size="sm">
               <Play className="h-3.5 w-3.5" />
-              开启
+              开庭
             </Button>
           ) : (
             <>
               <Button disabled={isPending || !isRunning} onClick={onPause} size="sm" variant="secondary">
                 <Pause className="h-3.5 w-3.5" />
-                暂停
+                断点
               </Button>
               <Button disabled={isPending || !canRun || isClosed} onClick={onResume} size="sm">
                 <Play className="h-3.5 w-3.5" />
-                恢复
+                续审
               </Button>
             </>
           )}
           <Button disabled={isPending || isClosed} onClick={onNext} size="sm" variant="secondary">
             <FastForward className="h-3.5 w-3.5" />
-            单步
+            下一轮
           </Button>
           <Button disabled={isPending || isClosed} onClick={onStop} size="sm" variant="danger">
             <CircleStop className="h-3.5 w-3.5" />
-            中止
+            休庭
           </Button>
         </div>
 
-        <div className="flex items-center gap-2 border-l border-[var(--line)] pl-4">
+        <div className={cn("items-center gap-2 border-l border-[var(--line)] pl-4", isExpanded ? "flex" : "hidden md:flex")}>
           <span className="hidden text-xs text-[var(--muted)] sm:inline">强制裁决</span>
           <div className="flex items-center gap-1">
             {[
@@ -468,20 +486,20 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
   const progress = Math.min(100, Math.round((session.currentRound / Math.max(session.maxRounds, 1)) * 100));
 
   return (
-    <div className="pb-40 md:pb-28">
+    <div className="pb-28 md:pb-28">
       <header className="mb-6 border-b border-[var(--line)] pb-6">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge tone="cyan">自由辩论场</Badge>
-              <span className="text-xs text-[var(--muted)]">ID {session.id.slice(0, 8)}</span>
+              <Badge tone="cyan">自由议席</Badge>
+              <span className="text-xs text-[var(--muted)]">卷宗 {session.id.slice(0, 8)}</span>
             </div>
             <h1 className="mt-4 max-w-5xl font-serif text-3xl font-black leading-tight text-[var(--ink)] sm:text-4xl">
               {session.topic}
             </h1>
             <div className="mt-4 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
               <span>呈现：{outputModeText(session.outputMode)}</span>
-              <span>预计消耗：{totalTokens.toLocaleString()} 令牌</span>
+              <span>卷宗估算：{totalTokens.toLocaleString()} 令牌</span>
               <span>裁决：{winnerText(session.winner)}</span>
             </div>
           </div>
@@ -494,39 +512,43 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
 
       {session.status === "awaiting_confirmation" ? (
         <div className="mb-5 rounded-md border border-[var(--brass)]/35 bg-[var(--brass-soft)] p-4 text-sm text-[var(--brass)]">
-          系统触发安全断点：第 {session.currentRound} 轮已挂起。
+          庭审触发断点复核：第 {session.currentRound} 轮已挂起。
         </div>
       ) : null}
 
       {error ? (
         <div className="mb-5 rounded-md border border-[var(--rose)]/35 bg-[var(--rose-soft)] p-4 text-sm text-[var(--rose)]">
-          接口调用故障：{error}
+          庭务调用故障：{error}
         </div>
       ) : null}
 
-      <div className="grid items-start gap-5 xl:grid-cols-[1fr_0.92fr_1fr]">
-        <DebaterPanel
-          content={latest?.speakerAContent ?? ""}
-          isActive={isAActive}
-          mode={session.outputMode}
-          score={scoreFor(latest, "A")}
-          side="A"
-          stance={participantA?.stance ?? "正方：主张成立"}
-        />
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.06fr)_360px_minmax(0,1.06fr)]">
+        <div className="order-2 xl:order-1">
+          <DebaterPanel
+            content={latest?.speakerAContent ?? ""}
+            isActive={isAActive}
+            mode={session.outputMode}
+            score={scoreFor(latest, "A")}
+            side="A"
+            stance={participantA?.stance ?? "正方：主张成立"}
+          />
+        </div>
 
-        <div className="space-y-5">
+        <div className="order-1 space-y-5 xl:order-2">
           <JudgePanel session={session} />
           <RoundTimeline rounds={session.rounds} />
         </div>
 
-        <DebaterPanel
-          content={latest?.speakerBContent ?? ""}
-          isActive={isBActive}
-          mode={session.outputMode}
-          score={scoreFor(latest, "B")}
-          side="B"
-          stance={participantB?.stance ?? "反方：主张不成立"}
-        />
+        <div className="order-3 xl:order-3">
+          <DebaterPanel
+            content={latest?.speakerBContent ?? ""}
+            isActive={isBActive}
+            mode={session.outputMode}
+            score={scoreFor(latest, "B")}
+            side="B"
+            stance={participantB?.stance ?? "反方：主张不成立"}
+          />
+        </div>
       </div>
 
       <ControlConsole

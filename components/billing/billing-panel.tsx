@@ -27,25 +27,25 @@ type EntitlementsResponse = {
 const plans: Plan[] = [
   {
     id: "free",
-    name: "Free Theater",
+    name: "自由卷宗",
     price: "$0",
-    limit: "120 rounds/mo",
-    features: ["Mock mode", "Free Debate Arena", "Local history"],
+    limit: "每月 120 轮",
+    features: ["本地模拟", "自由议席", "本地卷宗"],
   },
   {
     id: "pro",
-    name: "Pro Debater",
+    name: "专业庭审",
     price: "$12",
-    limit: "1200 rounds/mo",
-    features: ["Higher monthly rounds", "Premium providers", "Export-ready history"],
+    limit: "每月 1200 轮",
+    features: ["更高月度回合", "高级接入器", "可整理卷宗"],
     isPopular: true,
   },
   {
     id: "studio",
-    name: "Studio",
+    name: "工作室卷宗",
     price: "$39",
-    limit: "6000 rounds/mo",
-    features: ["Team-ready limits", "Research debates", "Commercial use"],
+    limit: "每月 6000 轮",
+    features: ["团队额度", "研究型议席", "商业使用"],
   },
 ];
 
@@ -86,7 +86,7 @@ export function BillingPanel() {
       if (data.checkout?.url) {
         window.location.assign(data.checkout.url);
       } else {
-        throw new Error(data.error || "支付通道未配置，仍可使用本地 Mock 模式");
+        throw new Error(data.error || "支付通道未配置，仍可使用本地模拟模式");
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "请求失败";
@@ -116,7 +116,7 @@ export function BillingPanel() {
             同步中
           </Badge>
         ) : (
-          <Badge tone="emerald">{plans.find((plan) => plan.id === currentPlanId)?.name || "Active"}</Badge>
+          <Badge tone="emerald">{plans.find((plan) => plan.id === currentPlanId)?.name || "已启用"}</Badge>
         )}
       </div>
 
@@ -140,7 +140,7 @@ export function BillingPanel() {
                   <h3 className="text-sm font-bold text-[var(--ink)]">{plan.name}</h3>
                   <div className="mt-3 flex items-end gap-1">
                     <span className="font-serif text-3xl font-black text-[var(--ink)]">{plan.price}</span>
-                    <span className="pb-1 text-xs text-[var(--muted)]">/mo</span>
+                    <span className="pb-1 text-xs text-[var(--muted)]">/月</span>
                   </div>
                 </div>
                 {isCurrent ? <Badge tone="neutral">当前</Badge> : plan.isPopular ? <Badge tone="rose">推荐</Badge> : null}
@@ -174,7 +174,7 @@ export function BillingPanel() {
                 ) : isProOrStudio ? (
                   "升级"
                 ) : (
-                  "Free"
+                  "免费"
                 )}
               </Button>
             </article>
