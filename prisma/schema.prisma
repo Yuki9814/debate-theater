@@ -1,0 +1,153 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id                    String                @id @default(cuid())
+  email                 String                @unique
+  name                  String?
+  createdAt             DateTime              @default(now())
+  apiProviders          ApiProvider[]
+  sessions              DebateSession[]
+  personas              Persona[]             @relation("CreatedPersonas")
+  billingSubscriptions  BillingSubscription[]
+  usageEvents           UsageEvent[]
+}
+
+model ApiProvider {
+  id              String   @id @default(cuid())
+  userId          String
+  providerName    String
+  baseUrl         String?
+  encryptedApiKey String?
+  defaultModel    String?
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DebateSession {
+  id                  String   @id @default(cuid())
+  userId              String
+  mode                String
+  topic               String
+  status              String   @default("draft")
+  maxRounds           Int      @default(30)
+  pauseEveryRounds    Int      @default(10)
+  lowScoreThreshold   Int      @default(55)
+  consecutiveLowLimit Int      @default(3)
+  judgeConfidence     Float    @default(0.75)
+  outputMode          String   @default("theater")
+  currentRound        Int      @default(0)
+  winner              String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  participants DebateParticipant[]
+  rounds       DebateRound[]
+}
+
+model DebateParticipant {
+  id              String  @id @default(cuid())
+  sessionId       String
+  side            String
+  stance          String
+  personaId       String?
+  modelProviderId String?
+  modelName       String?
+  systemPrompt    String
+
+  session DebateSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model DebateRound {
+  id                String   @id @default(cuid())
+  sessionId         String
+  roundNumber       Int
+  speakerAContent   String
+  speakerBContent   String
+  judgeSummary      String
+  judgeComment      String?
+  confidence        Float    @default(0)
+  inputTokens       Int      @default(0)
+  outputTokens      Int      @default(0)
+  estimatedCostUsd  Float    @default(0)
+  createdAt         DateTime @default(now())
+
+  session DebateSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  scores  JudgeScore[]
+
+  @@unique([sessionId, roundNumber])
+}
+
+model JudgeScore {
+  id              String @id @default(cuid())
+  roundId         String
+  side            String
+  logic           Int
+  evidence        Int
+  rebuttal        Int
+  clarity         Int
+  personaFidelity Int
+  total           Int
+  comment         String?
+
+  round DebateRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+}
+
+model Persona {
+  id              String  @id @default(cuid())
+  name            String
+  category        String
+  era             String?
+  description     String
+  coreBeliefs     String
+  speakingStyle   String
+  experiences     String
+  debateStrengths String
+  blindSpots      String
+  avatarUrl       String?
+  isSystemPreset  Boolean @default(false)
+  createdByUserId String?
+
+  createdByUser User? @relation("CreatedPersonas", fields: [createdByUserId], references: [id], onDelete: SetNull)
+}
+
+model BillingSubscription {
+  id                   String    @id @default(cuid())
+  userId               String
+  planId               String    @default("free")
+  status               String    @default("mock_active")
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UsageEvent {
+  id               String   @id @default(cuid())
+  userId           String
+  sessionId        String?
+  providerId       String?
+  eventType        String
+  roundNumber      Int?
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  estimatedCostUsd Float    @default(0)
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, eventType, createdAt])
+}

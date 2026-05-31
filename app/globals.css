@@ -1,0 +1,212 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Serif+SC:wght@500;600;700;900&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --paper: #f7f6f0;
+  --paper-quiet: #efebe1;
+  --paper-warm: #fbfaf6;
+  --ink: #1d1a16;
+  --ink-soft: #39332c;
+  --muted: #746d62;
+  --muted-light: #9a9287;
+  --line: #d8d0c2;
+  --line-strong: #beb19d;
+  --cinnabar: #b64e3d;
+  --cinnabar-soft: #f4ddd7;
+  --jade: #2f7569;
+  --jade-soft: #dcebe6;
+  --lapis: #345f86;
+  --lapis-soft: #dfe8f0;
+  --brass: #9b7535;
+  --brass-soft: #eee5d2;
+  --rose: #9c3f47;
+  --rose-soft: #f0dadd;
+  --shadow: 0 24px 70px rgba(55, 43, 28, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  scroll-padding-top: 24px;
+}
+
+body {
+  min-height: 100%;
+  background:
+    linear-gradient(90deg, rgba(29, 26, 22, 0.035) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(29, 26, 22, 0.026) 1px, transparent 1px),
+    var(--paper);
+  background-size: 48px 48px;
+  color: var(--ink);
+  font-family: "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(182, 78, 61, 0.22);
+  color: var(--ink);
+}
+
+.font-serif,
+.serif-title {
+  font-family: "Noto Serif SC", "Songti SC", "STSong", Georgia, serif;
+}
+
+.app-canvas {
+  min-height: 100vh;
+  background:
+    repeating-linear-gradient(0deg, rgba(29, 26, 22, 0.025) 0, rgba(29, 26, 22, 0.025) 1px, transparent 1px, transparent 19px),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(239, 235, 225, 0.72));
+}
+
+.paper-grain {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.48;
+  background-image:
+    linear-gradient(120deg, rgba(29, 26, 22, 0.04), transparent 44%, rgba(155, 117, 53, 0.035)),
+    repeating-linear-gradient(90deg, rgba(29, 26, 22, 0.018) 0 1px, transparent 1px 7px);
+  mix-blend-mode: multiply;
+}
+
+.content-frame {
+  z-index: 1;
+}
+
+.page-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.page-title {
+  color: var(--ink);
+  font-family: "Noto Serif SC", "Songti SC", "STSong", Georgia, serif;
+  font-size: clamp(2rem, 4.4vw, 4.75rem);
+  font-weight: 900;
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+.section-rule {
+  border-top: 1px solid var(--line);
+}
+
+.ink-input,
+.ink-select,
+.ink-textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.ink-input,
+.ink-select {
+  min-height: 44px;
+  padding: 0 0.85rem;
+}
+
+.ink-textarea {
+  min-height: 112px;
+  resize: vertical;
+  padding: 0.85rem;
+  line-height: 1.75;
+}
+
+.ink-input::placeholder,
+.ink-textarea::placeholder {
+  color: var(--muted-light);
+}
+
+.ink-input:focus,
+.ink-select:focus,
+.ink-textarea:focus {
+  border-color: var(--cinnabar);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 3px rgba(182, 78, 61, 0.12);
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(116, 109, 98, 0.35) transparent;
+}
+
+.thin-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(116, 109, 98, 0.35);
+  border-radius: 999px;
+}
+
+.fade-in {
+  animation: fade-in 420ms ease both;
+}
+
+.ink-pulse {
+  animation: ink-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ink-pulse {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 1;
+  }
+}

@@ -1,0 +1,380 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowRight, Gauge, Scale, ShieldCheck, SlidersHorizontal, Sparkles } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Panel } from "@/components/ui/panel";
+import { defaultDebateSetup, providerOptions, type DebateSetupInput } from "@/lib/debate/types";
+
+const PRESET_TOPICS = [
+  {
+    topic: "人工智能未来是否应该被赋予法律主体地位与道德权利义务？",
+    sideA: "应当赋予，以确立算力责任归宿与伦理边界",
+    sideB: "不应赋予，AI 仅为人类延伸工具而非生命主体",
+  },
+  {
+    topic: "大都市圈核心区域是否应当全面禁止私家非纯电载客车辆驶入？",
+    sideA: "应当禁行，用物理手段倒逼绿色微循环与公共交通",
+    sideB: "不宜禁行，此举剥夺市民路权且损害城市商业活力",
+  },
+  {
+    topic: "基因编辑技术是否应当被允许用于非致病性人类表型定制？",
+    sideA: "允许使用，这是人类主动优化自身进化轨迹的合理探索",
+    sideB: "严格禁止，极易诱发社会阶层固化与伦理失控风险",
+  },
+];
+
+type PresetTopic = (typeof PRESET_TOPICS)[number];
+
+function NumberField({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+  suffix,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+  suffix?: string;
+}) {
+  return (
+    <label className="space-y-2">
+      <span className="field-label">
+        {label}
+        {suffix ? <span className="font-normal">{suffix}</span> : null}
+      </span>
+      <input
+        className="ink-input"
+        max={max}
+        min={min}
+        onChange={(event) => onChange(Number(event.target.value))}
+        type="number"
+        value={value}
+      />
+    </label>
+  );
+}
+
+function ProviderSelect({
+  label,
+  value,
+  model,
+  onProviderChange,
+  onModelChange,
+}: {
+  label: string;
+  value: DebateSetupInput["providerA"];
+  model: string;
+  onProviderChange: (value: DebateSetupInput["providerA"]) => void;
+  onModelChange: (value: string) => void;
+}) {
+  return (
+    <div className="grid gap-3 rounded-md border border-[var(--line)] bg-white/35 p-4 sm:grid-cols-[1fr_1fr]">
+      <label className="space-y-2">
+        <span className="field-label">{label}</span>
+        <select
+          className="ink-select"
+          onChange={(event) => onProviderChange(event.target.value as DebateSetupInput["providerA"])}
+          value={value}
+        >
+          {providerOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="space-y-2">
+        <span className="field-label">模型</span>
+        <input
+          className="ink-input"
+          onChange={(event) => onModelChange(event.target.value)}
+          placeholder={value === "mock" ? "mock-theater" : "gpt-4o-mini"}
+          value={model}
+        />
+      </label>
+    </div>
+  );
+}
+
+export function SetupForm() {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [form, setForm] = useState<DebateSetupInput>({
+    ...defaultDebateSetup,
+    topic: "人工智能未来是否应该被赋予法律主体地位与道德权利义务？",
+    sideA: "应当赋予，以确立算力责任归宿与伦理边界",
+    sideB: "不应赋予，AI 仅为人类延伸工具而非生命主体",
+    mode: "custom",
+    modelA: "mock-theater-a",
+    modelB: "mock-theater-b",
+    modelJudge: "mock-judge",
+    outputMode: "theater",
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  function update<K extends keyof DebateSetupInput>(key: K, value: DebateSetupInput[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function applyPreset(preset: PresetTopic) {
+    setForm((current) => ({
+      ...current,
+      topic: preset.topic,
+      sideA: preset.sideA,
+      sideB: preset.sideB,
+      mode: "custom",
+    }));
+  }
+
+  async function submit() {
+    setError(null);
+    startTransition(async () => {
+      const response = await fetch("/api/debate/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const payload = (await response.json()) as { session?: { id: string }; error?: string };
+
+      if (!response.ok || !payload.session) {
+        setError(payload.error ?? "创建辩论失败。");
+        return;
+      }
+
+      router.push(`/debate/${payload.session.id}`);
+    });
+  }
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <Panel className="p-5 sm:p-7">
+        <div className="border-b border-[var(--line)] pb-6">
+          <div className="page-kicker">
+            <SlidersHorizontal className="h-4 w-4 text-[var(--cinnabar)]" />
+            Debate Brief
+          </div>
+          <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)]">开局战书</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
+            写下议题、立场与裁判参数，系统将建立一个新的辩论舱。
+          </p>
+        </div>
+
+        <div className="mt-7 space-y-6">
+          <section className="space-y-3">
+            <span className="field-label justify-start gap-2">
+              <Sparkles className="h-3.5 w-3.5 text-[var(--cinnabar)]" />
+              推荐辩题
+            </span>
+            <div className="grid gap-2">
+              {PRESET_TOPICS.map((preset, index) => (
+                <button
+                  className="rounded-md border border-[var(--line)] bg-white/35 p-3 text-left text-sm leading-6 text-[var(--ink-soft)] transition hover:border-[var(--cinnabar)] hover:bg-white/70"
+                  key={preset.topic}
+                  onClick={() => applyPreset(preset)}
+                  type="button"
+                >
+                  <span className="mr-2 font-serif text-base font-bold text-[var(--cinnabar)]">
+                    {index + 1}
+                  </span>
+                  {preset.topic}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <label className="space-y-2 block">
+            <span className="field-label">辩论主题</span>
+            <textarea
+              className="ink-textarea min-h-[132px] text-base"
+              onChange={(event) => update("topic", event.target.value)}
+              placeholder="请输入本次推演的核心议题..."
+              value={form.topic}
+            />
+          </label>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2">
+              <span className="field-label">立场模式</span>
+              <select
+                className="ink-select"
+                onChange={(event) => update("mode", event.target.value as DebateSetupInput["mode"])}
+                value={form.mode}
+              >
+                <option value="auto">自动分配对立立场</option>
+                <option value="custom">手动定义两侧立场</option>
+              </select>
+            </label>
+            <label className="space-y-2">
+              <span className="field-label">呈现模式</span>
+              <select
+                className="ink-select"
+                onChange={(event) =>
+                  update("outputMode", event.target.value as DebateSetupInput["outputMode"])
+                }
+                value={form.outputMode}
+              >
+                <option value="theater">剧场摘录</option>
+                <option value="sentence">逐句拆解</option>
+                <option value="full">原文整段</option>
+              </select>
+            </label>
+          </div>
+
+          {form.mode === "custom" && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="space-y-2">
+                <span className="field-label">甲方主张</span>
+                <input
+                  className="ink-input"
+                  onChange={(event) => update("sideA", event.target.value)}
+                  placeholder="请输入甲方观点..."
+                  value={form.sideA ?? ""}
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="field-label">乙方主张</span>
+                <input
+                  className="ink-input"
+                  onChange={(event) => update("sideB", event.target.value)}
+                  placeholder="请输入乙方观点..."
+                  value={form.sideB ?? ""}
+                />
+              </label>
+            </div>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <NumberField
+              label="最大回合"
+              max={200}
+              min={1}
+              onChange={(value) => update("maxRounds", value)}
+              suffix="1-200"
+              value={form.maxRounds}
+            />
+            <NumberField
+              label="暂停频率"
+              max={50}
+              min={1}
+              onChange={(value) => update("pauseEveryRounds", value)}
+              suffix="每 N 轮"
+              value={form.pauseEveryRounds}
+            />
+            <NumberField
+              label="低分线"
+              max={100}
+              min={1}
+              onChange={(value) => update("lowScoreThreshold", value)}
+              suffix="1-100"
+              value={form.lowScoreThreshold}
+            />
+            <NumberField
+              label="连续上限"
+              max={20}
+              min={1}
+              onChange={(value) => update("consecutiveLowLimit", value)}
+              suffix="1-20"
+              value={form.consecutiveLowLimit}
+            />
+          </div>
+
+          <label className="space-y-3 block">
+            <span className="field-label">
+              裁判置信阈值
+              <span>{Math.round(form.judgeConfidence * 100)}%</span>
+            </span>
+            <input
+              className="w-full accent-[var(--cinnabar)]"
+              max="1"
+              min="0.3"
+              onChange={(event) => update("judgeConfidence", Number(event.target.value))}
+              step="0.05"
+              type="range"
+              value={form.judgeConfidence}
+            />
+          </label>
+
+          <section className="space-y-3 border-t border-[var(--line)] pt-6">
+            <span className="field-label justify-start gap-2">
+              <Scale className="h-3.5 w-3.5 text-[var(--lapis)]" />
+              算力分配
+            </span>
+            <ProviderSelect
+              label="甲方辩手"
+              model={form.modelA ?? ""}
+              onModelChange={(value) => update("modelA", value)}
+              onProviderChange={(value) => update("providerA", value)}
+              value={form.providerA}
+            />
+            <ProviderSelect
+              label="乙方辩手"
+              model={form.modelB ?? ""}
+              onModelChange={(value) => update("modelB", value)}
+              onProviderChange={(value) => update("providerB", value)}
+              value={form.providerB}
+            />
+            <ProviderSelect
+              label="中央裁判"
+              model={form.modelJudge ?? ""}
+              onModelChange={(value) => update("modelJudge", value)}
+              onProviderChange={(value) => update("providerJudge", value)}
+              value={form.providerJudge}
+            />
+          </section>
+
+          {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]">{error}</p> : null}
+
+          <Button className="w-full" disabled={isPending} onClick={submit} size="lg">
+            {isPending ? "正在建立辩论舱..." : "建立辩论舱"}
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </Panel>
+
+      <div className="space-y-4">
+        {[
+          {
+            title: "熔断护栏",
+            body: "最高轮数、低分线、连续低分上限会一起限制异常消耗。",
+            icon: Gauge,
+            tone: "cyan" as const,
+          },
+          {
+            title: "中文论辩",
+            body: "辩手围绕主张给出连续陈词，裁判逐轮生成分牌。",
+            icon: Sparkles,
+            tone: "rose" as const,
+          },
+          {
+            title: "密钥隔离",
+            body: "真实服务商密钥不进入浏览器上下文。",
+            icon: ShieldCheck,
+            tone: "emerald" as const,
+          },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <Panel className="p-5" key={item.title}>
+              <div className="flex items-start gap-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[var(--line)] bg-white/45">
+                  <Icon className="h-5 w-5 text-[var(--cinnabar)]" />
+                </div>
+                <div>
+                  <Badge tone={item.tone}>{item.title}</Badge>
+                  <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{item.body}</p>
+                </div>
+              </div>
+            </Panel>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
