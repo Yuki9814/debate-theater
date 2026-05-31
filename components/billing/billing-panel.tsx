@@ -20,7 +20,15 @@ type EntitlementsResponse = {
   entitlement?: {
     plan?: {
       id?: string;
+      monthlyRoundLimit?: number;
     };
+    remainingRounds?: number;
+    monthlyResetAt?: string;
+    upgradeRecommendation?: {
+      message: string;
+      suggestedPlanId: string;
+    };
+    upgradeScenarios?: string[];
   };
 };
 
@@ -30,14 +38,14 @@ const plans: Plan[] = [
     name: "自由卷宗",
     price: "$0",
     limit: "每月 120 轮",
-    features: ["本地模拟", "自由议席", "本地卷宗"],
+    features: ["本地模拟", "快速开庭", "本地卷宗预览"],
   },
   {
     id: "pro",
     name: "专业庭审",
     price: "$12",
     limit: "每月 1200 轮",
-    features: ["更高月度回合", "高级接入器", "可整理卷宗"],
+    features: ["真实模型接入", "多场复盘沉淀", "Markdown / JSON 导出"],
     isPopular: true,
   },
   {
@@ -45,7 +53,7 @@ const plans: Plan[] = [
     name: "工作室卷宗",
     price: "$39",
     limit: "每月 6000 轮",
-    features: ["团队额度", "研究型议席", "商业使用"],
+    features: ["团队额度", "研究流路线图", "商业使用"],
   },
 ];
 
@@ -106,7 +114,9 @@ export function BillingPanel() {
           </div>
           <div>
             <h2 className="font-serif text-2xl font-bold text-[var(--ink)]">算力方案</h2>
-            <p className="mt-1 text-xs text-[var(--muted)]">订阅状态与月度回合额度</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              {entitlements?.entitlement?.upgradeRecommendation?.message ?? "订阅状态与月度回合额度"}
+            </p>
           </div>
         </div>
 
@@ -119,6 +129,27 @@ export function BillingPanel() {
           <Badge tone="emerald">{plans.find((plan) => plan.id === currentPlanId)?.name || "已启用"}</Badge>
         )}
       </div>
+
+      {entitlements?.entitlement ? (
+        <div className="mx-5 mt-5 rounded-md border border-[var(--line)] bg-white/35 p-4 text-sm leading-7 text-[var(--muted)] sm:mx-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>
+              剩余额度：{" "}
+              <strong className="text-[var(--ink)]">
+                {entitlements.entitlement.remainingRounds ?? "--"}/{entitlements.entitlement.plan?.monthlyRoundLimit ?? "--"} 轮
+              </strong>
+            </span>
+            <span>重置：{entitlements.entitlement.monthlyResetAt?.slice(0, 10) ?? "--"}</span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(entitlements.entitlement.upgradeScenarios ?? []).map((scenario) => (
+              <span className="rounded-full bg-[var(--lapis-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--lapis)]" key={scenario}>
+                {scenario}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 p-5 sm:grid-cols-3 sm:p-6">
         {plans.map((plan) => {

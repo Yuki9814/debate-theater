@@ -3,11 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   Activity,
+  AlertCircle,
   ChevronDown,
   ChevronUp,
   CircleStop,
+  Download,
   FastForward,
+  FileJson,
+  FileText,
   History,
+  Lightbulb,
   Pause,
   Play,
   Scale,
@@ -268,6 +273,159 @@ function JudgePanel({ session }: { session: DebateSessionDTO }) {
   );
 }
 
+type ExportResponse = {
+  export?: {
+    format: "markdown" | "json";
+    filename: string;
+    content: string;
+    canDownload: boolean;
+    previewOnly: boolean;
+    upgradeRequired: boolean;
+    planId: string;
+  };
+  error?: string;
+};
+
+function RecapPanel({ session }: { session: DebateSessionDTO }) {
+  const [exportState, setExportState] = useState<{
+    loading: "markdown" | "json" | null;
+    message: string | null;
+    preview: string | null;
+    error: string | null;
+  }>({
+    loading: null,
+    message: null,
+    preview: null,
+    error: null,
+  });
+
+  async function requestExport(format: "markdown" | "json") {
+    setExportState({ loading: format, message: null, preview: null, error: null });
+    try {
+      const response = await fetch(`/api/debate/sessions/${session.id}/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ format }),
+      });
+      const payload = (await response.json()) as ExportResponse;
+      if (!response.ok || !payload.export) {
+        throw new Error(payload.error ?? "导出失败。");
+      }
+
+      if (!payload.export.canDownload) {
+        setExportState({
+          loading: null,
+          message: "免费版展示导出预览；升级 Pro 后可下载完整卷宗。",
+          preview: payload.export.content,
+          error: null,
+        });
+        return;
+      }
+
+      const blob = new Blob([payload.export.content], {
+        type: format === "markdown" ? "text/markdown;charset=utf-8" : "application/json;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = payload.export.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setExportState({ loading: null, message: "完整卷宗已开始下载。", preview: null, error: null });
+    } catch (exportError) {
+      setExportState({
+        loading: null,
+        message: null,
+        preview: null,
+        error: exportError instanceof Error ? exportError.message : "导出失败。",
+      });
+    }
+  }
+
+  return (
+    <Panel className="p-5">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-[var(--line)] pb-4">
+        <div className="flex items-center gap-2">
+          <Lightbulb className="h-4 w-4 text-[var(--brass)]" />
+          <h2 className="font-serif text-lg font-bold text-[var(--ink)]">复盘摘要</h2>
+        </div>
+        <Badge tone={session.exportAvailable ? "emerald" : "neutral"}>
+          {session.exportAvailable ? "可预览导出" : "等待首轮"}
+        </Badge>
+      </div>
+
+      <p className="text-sm leading-7 text-[var(--ink-soft)]">
+        {session.recapSummary ?? "生成首轮后，这里会沉淀胜负理由、关键论点与薄弱环节。"}
+      </p>
+
+      {session.keyArguments.length > 0 ? (
+        <div className="mt-4 grid gap-3">
+          <div className="rounded-md border border-[var(--line)] bg-white/35 p-3">
+            <div className="mb-2 text-xs font-semibold text-[var(--muted)]">关键论点</div>
+            <ul className="space-y-2 text-xs leading-5 text-[var(--ink-soft)]">
+              {session.keyArguments.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-md border border-[var(--line)] bg-white/35 p-3">
+            <div className="mb-2 text-xs font-semibold text-[var(--muted)]">薄弱环节</div>
+            <ul className="space-y-2 text-xs leading-5 text-[var(--ink-soft)]">
+              {session.weaknesses.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button
+          disabled={!session.exportAvailable || exportState.loading !== null}
+          onClick={() => void requestExport("markdown")}
+          size="sm"
+          title="导出 Markdown 卷宗；免费版先展示预览"
+          variant="secondary"
+        >
+          <FileText className="h-3.5 w-3.5" />
+          Markdown
+        </Button>
+        <Button
+          disabled={!session.exportAvailable || exportState.loading !== null}
+          onClick={() => void requestExport("json")}
+          size="sm"
+          title="导出 JSON 数据；免费版先展示预览"
+          variant="secondary"
+        >
+          <FileJson className="h-3.5 w-3.5" />
+          JSON
+        </Button>
+        <Button disabled size="sm" title="Pro 解锁完整下载" variant="ghost">
+          <Download className="h-3.5 w-3.5" />
+          Pro 下载
+        </Button>
+      </div>
+
+      {exportState.message ? (
+        <div className="mt-4 rounded-md border border-[var(--brass)]/35 bg-[var(--brass-soft)] p-3 text-xs leading-5 text-[var(--brass)]">
+          {exportState.message}
+        </div>
+      ) : null}
+      {exportState.error ? (
+        <div className="mt-4 flex gap-2 rounded-md border border-[var(--rose)]/35 bg-[var(--rose-soft)] p-3 text-xs leading-5 text-[var(--rose)]">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {exportState.error}
+        </div>
+      ) : null}
+      {exportState.preview ? (
+        <pre className="thin-scrollbar mt-4 max-h-52 overflow-auto rounded-md border border-[var(--line)] bg-[var(--paper-quiet)] p-3 text-[11px] leading-5 text-[var(--ink-soft)]">
+          {exportState.preview}
+        </pre>
+      ) : null}
+    </Panel>
+  );
+}
+
 function RoundTimeline({ rounds }: { rounds: DebateRoundDTO[] }) {
   return (
     <Panel className="flex max-h-[400px] min-h-[320px] flex-col p-5">
@@ -334,6 +492,8 @@ function ControlConsole({
   const isRunning = session.status === "running";
   const isClosed = session.status === "ended" || session.status === "stopped";
   const [isExpanded, setIsExpanded] = useState(false);
+  const nextRound = Math.min(session.currentRound + 1, session.maxRounds);
+  const resumeLabel = session.status === "awaiting_confirmation" || session.status === "paused" ? `继续第 ${nextRound} 轮` : "续审";
 
   const statusColor = isRunning
     ? "bg-[var(--jade)]"
@@ -342,7 +502,7 @@ function ControlConsole({
       : "bg-[var(--muted-light)]";
 
   return (
-    <div className="fixed inset-x-3 bottom-3 z-40 rounded-md border border-[var(--line)] bg-[var(--console-bg)] px-3 py-2 shadow-[var(--console-shadow)] backdrop-blur-xl md:inset-x-0 md:bottom-0 md:left-[76px] md:rounded-none md:border-x-0 md:border-b-0 md:px-4 md:py-3">
+    <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-40 rounded-md border border-[var(--line)] bg-[var(--console-bg)] px-3 py-2 shadow-[var(--console-shadow)] backdrop-blur-xl md:inset-x-0 md:bottom-0 md:left-[76px] md:rounded-none md:border-x-0 md:border-b-0 md:px-4 md:py-3">
       <div className="mx-auto flex max-w-[1364px] flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full ink-pulse", statusColor)} />
@@ -364,27 +524,27 @@ function ControlConsole({
 
         <div className={cn("flex flex-wrap items-center gap-2", !isExpanded && "hidden md:flex")}>
           {session.status === "draft" ? (
-            <Button disabled={isPending || isClosed} onClick={onStart} size="sm">
+            <Button disabled={isPending || isClosed} onClick={onStart} size="sm" title="开始自动生成第一轮攻防">
               <Play className="h-3.5 w-3.5" />
               开庭
             </Button>
           ) : (
             <>
-              <Button disabled={isPending || !isRunning} onClick={onPause} size="sm" variant="secondary">
+              <Button disabled={isPending || !isRunning} onClick={onPause} size="sm" title="暂停生成，保留当前卷宗状态" variant="secondary">
                 <Pause className="h-3.5 w-3.5" />
                 断点
               </Button>
-              <Button disabled={isPending || !canRun || isClosed} onClick={onResume} size="sm">
+              <Button disabled={isPending || !canRun || isClosed} onClick={onResume} size="sm" title={`继续生成第 ${nextRound} 轮`}>
                 <Play className="h-3.5 w-3.5" />
-                续审
+                {resumeLabel}
               </Button>
             </>
           )}
-          <Button disabled={isPending || isClosed} onClick={onNext} size="sm" variant="secondary">
+          <Button disabled={isPending || isClosed} onClick={onNext} size="sm" title={`手动生成第 ${nextRound} 轮`} variant="secondary">
             <FastForward className="h-3.5 w-3.5" />
             下一轮
           </Button>
-          <Button disabled={isPending || isClosed} onClick={onStop} size="sm" variant="danger">
+          <Button disabled={isPending || isClosed} onClick={onStop} size="sm" title="停止辩论并保留已有卷宗" variant="danger">
             <CircleStop className="h-3.5 w-3.5" />
             休庭
           </Button>
@@ -486,7 +646,7 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
   const progress = Math.min(100, Math.round((session.currentRound / Math.max(session.maxRounds, 1)) * 100));
 
   return (
-    <div className="pb-28 md:pb-28">
+    <div className="pb-[calc(15rem+env(safe-area-inset-bottom))] md:pb-28">
       <header className="mb-6 border-b border-[var(--line)] pb-6">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div className="min-w-0 flex-1">
@@ -512,7 +672,8 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
 
       {session.status === "awaiting_confirmation" ? (
         <div className="mb-5 rounded-md border border-[var(--brass)]/35 bg-[var(--brass-soft)] p-4 text-sm text-[var(--brass)]">
-          庭审触发断点复核：第 {session.currentRound} 轮已挂起。
+          庭审触发断点复核：第 {session.currentRound} 轮已挂起。下一步可继续生成第{" "}
+          {Math.min(session.currentRound + 1, session.maxRounds)} 轮。
         </div>
       ) : null}
 
@@ -536,6 +697,7 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
 
         <div className="order-1 space-y-5 xl:order-2">
           <JudgePanel session={session} />
+          <RecapPanel session={session} />
           <RoundTimeline rounds={session.rounds} />
         </div>
 

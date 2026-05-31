@@ -1,4 +1,5 @@
 import type { DebateSessionDTO } from "./types.ts";
+import { buildSessionRecap } from "./recap.ts";
 
 type RawScore = {
   id: string;
@@ -57,7 +58,7 @@ type RawSession = {
 };
 
 export function serializeSession(session: RawSession): DebateSessionDTO {
-  return {
+  const serialized = {
     ...session,
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString(),
@@ -65,5 +66,9 @@ export function serializeSession(session: RawSession): DebateSessionDTO {
       ...round,
       createdAt: round.createdAt.toISOString(),
     })),
+  };
+  return {
+    ...serialized,
+    ...buildSessionRecap(serialized),
   };
 }

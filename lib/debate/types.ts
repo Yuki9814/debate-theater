@@ -135,6 +135,10 @@ export type DebateSessionDTO = {
   updatedAt: string;
   participants: ParticipantDTO[];
   rounds: DebateRoundDTO[];
+  recapSummary: string | null;
+  keyArguments: string[];
+  weaknesses: string[];
+  exportAvailable: boolean;
 };
 
 export const defaultDebateSetup: DebateSetupInput = {

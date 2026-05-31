@@ -59,6 +59,9 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
           <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
             配置甲乙席与中央裁判可调用的模型接入器。
           </p>
+          <div className="mt-4 rounded-md border border-[var(--line)] bg-[var(--jade-soft)]/45 p-3 text-sm leading-6 text-[var(--muted)]">
+            公测可先用本地沙箱模拟；真实模型接入适合严肃复盘，也是 Pro 升级的核心价值之一。
+          </div>
         </div>
 
         <div className="mt-7 space-y-5">

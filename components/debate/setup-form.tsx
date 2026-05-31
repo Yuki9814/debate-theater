@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, ChevronDown, Gauge, Scale, ShieldCheck, SlidersHorizontal, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
 import { defaultDebateSetup, providerOptions, type DebateSetupInput } from "@/lib/debate/types";
+import { conversionScenarios } from "@/lib/product/conversion";
 
 const PRESET_TOPICS = [
   {
@@ -105,13 +106,17 @@ function ProviderSelect({
 
 export function SetupForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  const scenarioId = searchParams.get("scenario");
+  const scenario = conversionScenarios.find((item) => item.id === scenarioId);
+  const queryTopic = searchParams.get("topic")?.trim();
   const [form, setForm] = useState<DebateSetupInput>({
     ...defaultDebateSetup,
-    topic: "人工智能未来是否应该被赋予法律主体地位与道德权利义务？",
-    sideA: "应当赋予，以确立算力责任归宿与伦理边界",
-    sideB: "不应赋予，AI 仅为人类延伸工具而非生命主体",
-    mode: "custom",
+    topic: scenario?.topic ?? queryTopic ?? "人工智能未来是否应该被赋予法律主体地位与道德权利义务？",
+    sideA: scenario?.sideA,
+    sideB: scenario?.sideB,
+    mode: scenario ? "custom" : "auto",
     modelA: "mock-theater-a",
     modelB: "mock-theater-b",
     modelJudge: "mock-judge",
@@ -175,11 +180,11 @@ export function SetupForm() {
         <div className="border-b border-[var(--line)] pb-6">
           <div className="page-kicker">
             <SlidersHorizontal className="h-4 w-4 text-[var(--cinnabar)]" />
-            立卷战书
+            快速开庭
           </div>
-          <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)]">开局战书</h1>
+          <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)]">三分钟开一场辩论</h1>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
-            写下议题、两席主张与裁判规约，系统将开出一份可复盘的思想卷宗。
+            先写议题，默认由系统自动拟定甲乙两席。需要精细控制时，再展开高级设置。
           </p>
         </div>
 
@@ -187,9 +192,9 @@ export function SetupForm() {
           <section className="space-y-3">
             <span className="field-label justify-start gap-2">
               <Sparkles className="h-3.5 w-3.5 text-[var(--cinnabar)]" />
-              待审议题
+              高频开题
             </span>
-            <div className="grid gap-2">
+            <div className="grid gap-2 md:grid-cols-3">
               {PRESET_TOPICS.map((preset, index) => (
                 <button
                   className="rounded-md border border-[var(--line)] bg-white/35 p-3 text-left text-sm leading-6 text-[var(--ink-soft)] transition hover:border-[var(--cinnabar)] hover:bg-white/70"
@@ -224,24 +229,13 @@ export function SetupForm() {
                 onChange={(event) => update("mode", event.target.value as DebateSetupInput["mode"])}
                 value={form.mode}
               >
-                <option value="auto">由系统拟定甲乙席</option>
-                <option value="custom">手写甲乙两席主张</option>
+                <option value="auto">快速：系统自动拟定甲乙席</option>
+                <option value="custom">进阶：手写甲乙两席主张</option>
               </select>
             </label>
-            <label className="space-y-2">
-              <span className="field-label">判词呈现</span>
-              <select
-                className="ink-select"
-                onChange={(event) =>
-                  update("outputMode", event.target.value as DebateSetupInput["outputMode"])
-                }
-                value={form.outputMode}
-              >
-                <option value="theater">庭审摘录</option>
-                <option value="sentence">逐句拆解</option>
-                <option value="full">原文整段</option>
-              </select>
-            </label>
+            <div className="rounded-md border border-[var(--line)] bg-[var(--jade-soft)]/40 p-4 text-sm leading-7 text-[var(--muted)]">
+              免费公测默认使用 mock 模式，可先验证流程；真实模型、导出与长复盘在升级路径中解锁。
+            </div>
           </div>
 
           {form.mode === "custom" && (
@@ -280,6 +274,21 @@ export function SetupForm() {
               <ChevronDown className="h-4 w-4 shrink-0 text-[var(--muted)] sm:hidden" />
             </summary>
             <div className="space-y-6 border-t border-[var(--line)] p-4">
+              <label className="space-y-2 block">
+                <span className="field-label">判词呈现</span>
+                <select
+                  className="ink-select"
+                  onChange={(event) =>
+                    update("outputMode", event.target.value as DebateSetupInput["outputMode"])
+                  }
+                  value={form.outputMode}
+                >
+                  <option value="theater">庭审摘录</option>
+                  <option value="sentence">逐句拆解</option>
+                  <option value="full">原文整段</option>
+                </select>
+              </label>
+
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <NumberField
                   label="最大回合"

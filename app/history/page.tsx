@@ -2,8 +2,10 @@ import Link from "next/link";
 import { Archive, Award, Calendar, ChevronRight, Layers } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
 import { ensureDemoUser, sessionInclude } from "@/lib/debate/engine";
+import { serializeSession } from "@/lib/debate/serializers";
 import { prisma } from "@/lib/db/prisma";
 import { formatDateTime } from "@/lib/utils";
 
@@ -38,13 +40,40 @@ function winnerText(winner: string | null) {
   return winner;
 }
 
-export default async function HistoryPage() {
+type HistoryPageProps = {
+  searchParams: Promise<{
+    q?: string | string[];
+    status?: string | string[];
+    date?: string | string[];
+  }>;
+};
+
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function HistoryPage({ searchParams }: HistoryPageProps) {
+  const params = await searchParams;
+  const query = firstParam(params.q)?.trim() ?? "";
+  const statusFilter = firstParam(params.status)?.trim() ?? "";
+  const dateFilter = firstParam(params.date)?.trim() ?? "";
   const user = await ensureDemoUser();
-  const sessions = await prisma.debateSession.findMany({
+  const rawSessions = await prisma.debateSession.findMany({
     where: { userId: user.id },
     orderBy: { updatedAt: "desc" },
     include: sessionInclude,
   });
+  const sessions = rawSessions
+    .map(serializeSession)
+    .filter((session) => {
+      const matchesQuery =
+        !query ||
+        session.topic.toLowerCase().includes(query.toLowerCase()) ||
+        session.recapSummary?.toLowerCase().includes(query.toLowerCase());
+      const matchesStatus = !statusFilter || session.status === statusFilter;
+      const matchesDate = !dateFilter || session.updatedAt.slice(0, 10) === dateFilter;
+      return matchesQuery && matchesStatus && matchesDate;
+    });
 
   return (
     <AppShell>
@@ -56,14 +85,47 @@ export default async function HistoryPage() {
           </div>
           <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)] sm:text-5xl">卷宗馆</h1>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
-            所有庭审记录均来自本地 SQLite 卷宗。
+            支持按关键词、状态和日期筛选，结案卷宗可继续进入复盘和导出路径。
           </p>
         </header>
+
+        <Panel className="p-4 sm:p-5">
+          <form className="grid gap-3 md:grid-cols-[1fr_180px_180px_auto]" action="/history">
+            <label className="space-y-2">
+              <span className="field-label">关键词</span>
+              <input className="ink-input" defaultValue={query} name="q" placeholder="搜索议题或复盘摘要" />
+            </label>
+            <label className="space-y-2">
+              <span className="field-label">状态</span>
+              <select className="ink-select" defaultValue={statusFilter} name="status">
+                <option value="">全部状态</option>
+                <option value="draft">已初始化</option>
+                <option value="running">开庭中</option>
+                <option value="paused">已暂停</option>
+                <option value="awaiting_confirmation">待核准</option>
+                <option value="ended">已结案</option>
+                <option value="stopped">已中止</option>
+              </select>
+            </label>
+            <label className="space-y-2">
+              <span className="field-label">日期</span>
+              <input className="ink-input" defaultValue={dateFilter} name="date" type="date" />
+            </label>
+            <div className="flex items-end gap-2">
+              <button className={buttonVariants({ variant: "primary", size: "md" })} type="submit">
+                筛选
+              </button>
+              <a className={buttonVariants({ variant: "ghost", size: "md" })} href="/history">
+                重置
+              </a>
+            </div>
+          </form>
+        </Panel>
 
         {sessions.length === 0 ? (
           <Panel className="p-12 text-center">
             <Archive className="mx-auto h-10 w-10 text-[var(--muted-light)]" />
-            <p className="mt-4 text-sm text-[var(--muted)]">暂无已沉淀的庭审卷宗。</p>
+            <p className="mt-4 text-sm text-[var(--muted)]">没有匹配的庭审卷宗。</p>
           </Panel>
         ) : (
           <div className="space-y-3">
@@ -85,6 +147,9 @@ export default async function HistoryPage() {
                       <h2 className="line-clamp-2 text-base font-semibold leading-6 text-[var(--ink)] group-hover:text-[var(--cinnabar)]">
                         {session.topic}
                       </h2>
+                      <p className="mt-3 line-clamp-2 text-sm leading-6 text-[var(--muted)]">
+                        {session.recapSummary ?? session.rounds.at(-1)?.judgeSummary ?? "暂无裁判复盘。"}
+                      </p>
                     </div>
 
                     <div className="flex items-center justify-between gap-5 border-t border-[var(--line)] pt-4 lg:border-t-0 lg:pt-0">

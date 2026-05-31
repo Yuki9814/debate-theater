@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "论衡剧场",
-  description: "中文 AI 辩论工作台。",
+  description: "让两个 AI 围绕同一议题攻防，并由裁判给出可复盘评分。",
 };
 
 export default function RootLayout({

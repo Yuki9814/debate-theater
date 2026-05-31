@@ -151,3 +151,13 @@ model UsageEvent {
 
   @@index([userId, eventType, createdAt])
 }
+
+model WaitlistLead {
+  id        String   @id @default(cuid())
+  moduleId  String
+  email     String
+  useCase   String
+  createdAt DateTime @default(now())
+
+  @@index([moduleId, createdAt])
+}

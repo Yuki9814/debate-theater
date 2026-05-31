@@ -92,6 +92,14 @@ type BillingSubscriptionRow = {
   updatedAt: Date;
 };
 
+type WaitlistLeadRow = {
+  id: string;
+  moduleId: string;
+  email: string;
+  useCase: string;
+  createdAt: Date;
+};
+
 let db: DatabaseSync | null = null;
 let schemaReady = false;
 
@@ -254,6 +262,16 @@ function mapBillingSubscription(row: Row): BillingSubscriptionRow {
     currentPeriodEnd: row.currentPeriodEnd ? asDate(row.currentPeriodEnd) : null,
     createdAt: asDate(row.createdAt),
     updatedAt: asDate(row.updatedAt),
+  };
+}
+
+function mapWaitlistLead(row: Row): WaitlistLeadRow {
+  return {
+    id: String(row.id),
+    moduleId: String(row.moduleId),
+    email: String(row.email),
+    useCase: String(row.useCase),
+    createdAt: asDate(row.createdAt),
   };
 }
 
@@ -453,6 +471,15 @@ export async function ensureDatabase() {
       "estimatedCostUsd" REAL NOT NULL DEFAULT 0,
       "createdAt" TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS "WaitlistLead" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "moduleId" TEXT NOT NULL,
+      "email" TEXT NOT NULL,
+      "useCase" TEXT NOT NULL,
+      "createdAt" TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS "WaitlistLead_module_created_idx"
+      ON "WaitlistLead" ("moduleId", "createdAt");
     CREATE INDEX IF NOT EXISTS "UsageEvent_user_type_created_idx"
       ON "UsageEvent" ("userId", "eventType", "createdAt");
   `);
@@ -815,7 +842,32 @@ export const prisma = {
           args.currentPeriodEnd?.toISOString() ?? null,
           now(),
           args.stripeSubscriptionId,
-        );
+      );
+    },
+  },
+  waitlistLead: {
+    async create(args: {
+      data: {
+        moduleId: string;
+        email: string;
+        useCase: string;
+      };
+    }) {
+      await ensureDatabase();
+      const createdAt = now();
+      const lead = {
+        id: id(),
+        ...args.data,
+        createdAt,
+      };
+      getDb()
+        .prepare(
+          `INSERT INTO "WaitlistLead" ("id", "moduleId", "email", "useCase", "createdAt")
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(lead.id, lead.moduleId, lead.email, lead.useCase, lead.createdAt);
+      const row = getDb().prepare(`SELECT * FROM "WaitlistLead" WHERE "id" = ?`).get(lead.id);
+      return mapWaitlistLead(row as Row);
     },
   },
 };

@@ -184,8 +184,19 @@ h2,
 h3,
 p,
 blockquote,
-.field-label {
+.field-label,
+a,
+button,
+li,
+span {
   overflow-wrap: anywhere;
+}
+
+main,
+section,
+article,
+div {
+  min-width: 0;
 }
 
 .page-kicker {
