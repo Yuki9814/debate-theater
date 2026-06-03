@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { getCurrentUser } from "@/lib/auth/session";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { errorResponse } from "@/lib/errors";
 import { personaPresets } from "@/lib/persona/presets";
+import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 
 const personaCreateSchema = z.object({
@@ -18,34 +19,39 @@ const personaCreateSchema = z.object({
 });
 
 export async function GET(request: Request) {
-  const limit = consumeRateLimit("personas-list", request, {
+  const limit = await consumeRateLimit("personas-list", request, {
     limit: 120,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
-  const user = await getCurrentUser();
-  const custom = await prisma.persona.findMany({
-    where: { createdByUserId: user.id },
-    orderBy: { name: "asc" },
-  });
-  return Response.json({
-    personas: [
-      ...personaPresets.map((persona) => ({ ...persona, isSystemPreset: true })),
-      ...custom.map((persona) => ({ ...persona, isSystemPreset: false })),
-    ],
-  });
+  try {
+    const user = await requireCurrentUser();
+    const custom = await prisma.persona.findMany({
+      where: { createdByUserId: user.id },
+      orderBy: { name: "asc" },
+    });
+    return Response.json({
+      personas: [
+        ...personaPresets.map((persona) => ({ ...persona, isSystemPreset: true })),
+        ...custom.map((persona) => ({ ...persona, isSystemPreset: false })),
+      ],
+    });
+  } catch (error) {
+    return errorResponse(error, "读取人格失败。", 500);
+  }
 }
 
 export async function POST(request: Request) {
-  const limit = consumeRateLimit("personas-create", request, {
+  const limit = await consumeRateLimit("personas-create", request, {
     limit: 20,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await getCurrentUser();
+    requireMutationSecurity(request);
+    const user = await requireCurrentUser();
     const body = personaCreateSchema.parse(await request.json());
     const persona = await prisma.persona.create({
       data: {

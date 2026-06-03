@@ -1,20 +1,37 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
-import { History, KeyRound, Landmark, LayoutDashboard, Network, Route, Sparkles, UserCircle, Users } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { ChevronDown, ChevronUp, History, KeyRound, Landmark, LayoutDashboard, Network, Route, Sparkles, UserCircle, Users } from "lucide-react";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "论衡", icon: Landmark },
   { href: "/dashboard", label: "总控", icon: LayoutDashboard },
   { href: "/debate/setup", label: "开辩", icon: Sparkles },
-  { href: "/personas", label: "人格", icon: Users },
-  { href: "/research", label: "热点", icon: Network },
-  { href: "/companion", label: "同行", icon: Route },
+  { href: "/personas", label: "人格", icon: Users, phase: "Beta" },
+  { href: "/research", label: "热点", icon: Network, phase: "预览" },
+  { href: "/companion", label: "同行", icon: Route, phase: "Beta" },
   { href: "/history", label: "档案", icon: History },
   { href: "/settings", label: "密钥", icon: KeyRound },
   { href: "/account", label: "账号", icon: UserCircle },
 ];
 
+const mobileCoreHrefs = new Set(["/dashboard", "/debate/setup", "/history", "/settings", "/account"]);
+
+function isActivePath(pathname: string, href: string) {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const mobileCoreItems = navItems.filter((item) => mobileCoreHrefs.has(item.href));
+  const mobileMoreItems = navItems.filter((item) => !mobileCoreHrefs.has(item.href));
+
   return (
     <div className="app-canvas relative min-h-screen text-[var(--ink)]">
       <div className="paper-grain" />
@@ -31,16 +48,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="mt-8 flex flex-1 flex-col items-center gap-2">
           {navItems.map((item) => {
             const Icon = item.icon;
+            const active = isActivePath(pathname, item.href);
             return (
               <Link
                 aria-label={item.label}
-                className="group relative flex h-11 w-11 items-center justify-center rounded-md text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--ink)]"
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "group relative flex h-11 w-11 items-center justify-center rounded-md text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--ink)]",
+                  active && "bg-[var(--surface-hover)] text-[var(--ink)] ring-1 ring-[var(--cinnabar)]/35",
+                )}
                 href={item.href}
                 key={item.href}
               >
                 <Icon className="h-5 w-5" />
                 <span className="pointer-events-none absolute left-[54px] top-1/2 -translate-y-1/2 rounded-md border border-[var(--line)] bg-[var(--bg-glass-strong)] px-2.5 py-1 text-xs font-semibold text-[var(--ink)] opacity-0 shadow-lg transition group-hover:opacity-100">
                   {item.label}
+                  {item.phase ? <span className="ml-1 text-[var(--brass)]">{item.phase}</span> : null}
                 </span>
               </Link>
             );
@@ -56,21 +79,62 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <main className="content-frame mx-auto min-h-screen max-w-[1440px] px-4 pb-16 pt-4 sm:px-6 md:ml-[76px] md:px-9 md:py-8 lg:px-12">
-        <nav className="mb-6 grid grid-cols-5 rounded-md border border-[var(--line)] bg-[var(--bg-glass)] p-1 shadow-[var(--shadow)] backdrop-blur-xl sm:grid-cols-9 md:hidden">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Link
-                className="flex min-h-12 flex-col items-center justify-center gap-1 rounded px-1 py-2 text-[10px] font-semibold text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--ink)]"
-                href={item.href}
-                key={item.href}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            );
-          })}
-          <ThemeToggle compact />
+        <nav className="mb-6 rounded-md border border-[var(--line)] bg-[var(--bg-glass)] p-1 shadow-[var(--shadow)] backdrop-blur-xl md:hidden">
+          <div className="grid grid-cols-6 gap-1">
+            {mobileCoreItems.map((item) => {
+              const Icon = item.icon;
+              const active = isActivePath(pathname, item.href);
+              return (
+                <Link
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex min-h-12 flex-col items-center justify-center gap-1 rounded px-1 py-2 text-[10px] font-semibold text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--ink)]",
+                    active && "bg-[var(--surface-hover)] text-[var(--ink)]",
+                  )}
+                  href={item.href}
+                  key={item.href}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+            <button
+              aria-expanded={mobileMoreOpen}
+              className="flex min-h-12 flex-col items-center justify-center gap-1 rounded px-1 py-2 text-[10px] font-semibold text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--ink)]"
+              onClick={() => setMobileMoreOpen((value) => !value)}
+              type="button"
+            >
+              {mobileMoreOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              更多
+            </button>
+          </div>
+          {mobileMoreOpen ? (
+            <div className="mt-1 grid grid-cols-4 gap-1 border-t border-[var(--line)] pt-1">
+              {mobileMoreItems.map((item) => {
+                const Icon = item.icon;
+                const active = isActivePath(pathname, item.href);
+                return (
+                  <Link
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "flex min-h-12 flex-col items-center justify-center gap-1 rounded px-1 py-2 text-[10px] font-semibold text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--ink)]",
+                      active && "bg-[var(--surface-hover)] text-[var(--ink)]",
+                    )}
+                    href={item.href}
+                    key={item.href}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>
+                      {item.label}
+                      {item.phase ? <span className="ml-1 text-[var(--brass)]">{item.phase}</span> : null}
+                    </span>
+                  </Link>
+                );
+              })}
+              <ThemeToggle compact />
+            </div>
+          ) : null}
         </nav>
         {children}
       </main>

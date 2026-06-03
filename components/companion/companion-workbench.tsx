@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
 import type { CompanionSessionDTO } from "@/lib/companion/engine";
+import { secureFetch } from "@/lib/security/secure-fetch";
 
 function nodeTone(type: string) {
   if (type === "historical_fact") return "emerald" as const;
@@ -33,36 +34,44 @@ export function CompanionWorkbench({ initialSessions }: { initialSessions: Compa
   function create() {
     setError(null);
     startTransition(async () => {
-      const response = await fetch("/api/companion/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      const payload = (await response.json()) as { session?: CompanionSessionDTO; error?: string };
-      if (!response.ok || !payload.session) {
-        setError(payload.error ?? "创建失败。");
-        return;
+      try {
+        const response = await secureFetch("/api/companion/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        });
+        const payload = (await response.json()) as { session?: CompanionSessionDTO; error?: string };
+        if (!response.ok || !payload.session) {
+          setError(payload.error ?? "创建失败。");
+          return;
+        }
+        setSessions((current) => [payload.session as CompanionSessionDTO, ...current]);
+        setActive(payload.session);
+      } catch (createError) {
+        setError(createError instanceof Error ? createError.message : "创建失败。");
       }
-      setSessions((current) => [payload.session as CompanionSessionDTO, ...current]);
-      setActive(payload.session);
     });
   }
 
   function action(kind: "advance" | "rollback" | "stop") {
     if (!active) return;
     startTransition(async () => {
-      const response = await fetch(`/api/companion/sessions/${active.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: kind }),
-      });
-      const payload = (await response.json()) as { session?: CompanionSessionDTO; error?: string };
-      if (!response.ok || !payload.session) {
-        setError(payload.error ?? "更新失败。");
-        return;
+      try {
+        const response = await secureFetch(`/api/companion/sessions/${active.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: kind }),
+        });
+        const payload = (await response.json()) as { session?: CompanionSessionDTO; error?: string };
+        if (!response.ok || !payload.session) {
+          setError(payload.error ?? "更新失败。");
+          return;
+        }
+        setActive(payload.session);
+        setSessions((current) => current.map((session) => (session.id === payload.session?.id ? payload.session : session)));
+      } catch (actionError) {
+        setError(actionError instanceof Error ? actionError.message : "更新失败。");
       }
-      setActive(payload.session);
-      setSessions((current) => current.map((session) => (session.id === payload.session?.id ? payload.session : session)));
     });
   }
 
@@ -95,7 +104,7 @@ export function CompanionWorkbench({ initialSessions }: { initialSessions: Compa
               <span className="field-label">历史遗憾 / 目标</span>
               <textarea className="ink-textarea" onChange={(event) => setForm((current) => ({ ...current, goal: event.target.value }))} value={form.goal} />
             </label>
-            {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]">{error}</p> : null}
+            {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]" role="alert">{error}</p> : null}
             <Button className="w-full" disabled={isPending} onClick={create}>
               <GitBranch className="h-4 w-4" />
               创建世界线

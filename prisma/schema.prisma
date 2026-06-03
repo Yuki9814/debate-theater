@@ -31,6 +31,18 @@ model AuthSession {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model AuthLoginToken {
+  id        String    @id @default(cuid())
+  email     String
+  name      String?
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([email, expiresAt])
+}
+
 model ApiProvider {
   id              String   @id @default(cuid())
   userId          String
@@ -193,6 +205,13 @@ model BillingSubscription {
   updatedAt            DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model BillingWebhookEvent {
+  id            String   @id @default(cuid())
+  stripeEventId String @unique
+  eventType     String
+  processedAt   DateTime @default(now())
 }
 
 model UsageEvent {

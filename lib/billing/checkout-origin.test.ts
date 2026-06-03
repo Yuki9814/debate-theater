@@ -1,13 +1,40 @@
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { getSafeCheckoutOrigin } from "./checkout-origin.ts";
+
+function setEnv(key: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+}
 
 describe("getSafeCheckoutOrigin", () => {
   const appOrigin = "https://app.debate-theater.test";
   const checkoutUrl = `${appOrigin}/api/billing/checkout`;
+  const originalAppOrigin = process.env.APP_ORIGIN;
+
+  beforeEach(() => {
+    delete process.env.APP_ORIGIN;
+  });
+
+  afterEach(() => {
+    setEnv("APP_ORIGIN", originalAppOrigin);
+  });
 
   it("returns request origin when Origin header is missing", () => {
     assert.equal(getSafeCheckoutOrigin(new Request(checkoutUrl, { method: "POST" })), appOrigin);
+  });
+
+  it("uses configured APP_ORIGIN for fixed production return URLs", () => {
+    process.env.APP_ORIGIN = "https://canonical.example";
+    const request = new Request("https://preview.example/api/billing/checkout", {
+      method: "POST",
+      headers: { origin: "https://preview.example" }
+    });
+
+    assert.equal(getSafeCheckoutOrigin(request), "https://canonical.example");
   });
 
   it("returns Origin header when it exactly matches request origin", () => {

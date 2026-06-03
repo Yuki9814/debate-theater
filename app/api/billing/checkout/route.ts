@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { getSafeCheckoutOrigin } from "@/lib/billing/checkout-origin";
 import { createStripeCheckoutSession } from "@/lib/billing/stripe";
-import { getCurrentUser } from "@/lib/auth/session";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { errorResponse } from "@/lib/errors";
+import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 
 const checkoutSchema = z.object({
@@ -10,14 +11,15 @@ const checkoutSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const limit = consumeRateLimit("billing-checkout", request, {
+  const limit = await consumeRateLimit("billing-checkout", request, {
     limit: 10,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await getCurrentUser();
+    requireMutationSecurity(request);
+    const user = await requireCurrentUser();
     const body = checkoutSchema.parse(await request.json());
     const origin = getSafeCheckoutOrigin(request);
     const checkout = await createStripeCheckoutSession({

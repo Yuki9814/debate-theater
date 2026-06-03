@@ -9,6 +9,7 @@ import { Panel } from "@/components/ui/panel";
 import { defaultDebateSetup, providerOptions, type DebateMode, type DebateSetupInput } from "@/lib/debate/types";
 import { personaPresets, recommendPersonaTopics } from "@/lib/persona/presets";
 import { conversionScenarios } from "@/lib/product/conversion";
+import { secureFetch } from "@/lib/security/secure-fetch";
 
 type ProviderView = {
   id: string;
@@ -57,18 +58,20 @@ function NumberField({
   value,
   min,
   max,
+  step,
   onChange,
 }: {
   label: string;
   value: number;
   min: number;
   max: number;
+  step?: number;
   onChange: (value: number) => void;
 }) {
   return (
     <label className="space-y-2">
       <span className="field-label">{label}</span>
-      <input className="ink-input" max={max} min={min} onChange={(event) => onChange(Number(event.target.value))} type="number" value={value} />
+      <input className="ink-input" max={max} min={min} onChange={(event) => onChange(Number(event.target.value))} step={step} type="number" value={value} />
     </label>
   );
 }
@@ -109,12 +112,14 @@ export function SetupForm() {
       .then((response) => response.json())
       .then((payload: { providers?: ProviderView[] }) => {
         setProviders((payload.providers ?? []).filter((provider) => provider.enabled));
-      });
+      })
+      .catch(() => setError("读取接入器失败，请稍后刷新。"));
     void fetch("/api/personas")
       .then((response) => response.json())
       .then((payload: { personas?: PersonaView[] }) => {
         if (payload.personas?.length) setPersonas(payload.personas);
-      });
+      })
+      .catch(() => setError("读取人格库失败，请稍后刷新。"));
   }, []);
 
   const providerChoices = useMemo(
@@ -165,17 +170,21 @@ export function SetupForm() {
 
   async function previewSources() {
     setError(null);
-    const response = await fetch("/api/research/source-cards", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic: form.researchQuery || form.topic }),
-    });
-    const payload = (await response.json()) as { sourceCards?: SourceCardPreview[]; error?: string };
-    if (!response.ok) {
-      setError(payload.error ?? "资料包生成失败。");
-      return;
+    try {
+      const response = await secureFetch("/api/research/source-cards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: form.researchQuery || form.topic }),
+      });
+      const payload = (await response.json()) as { sourceCards?: SourceCardPreview[]; error?: string };
+      if (!response.ok) {
+        setError(payload.error ?? "资料包生成失败。");
+        return;
+      }
+      setSourcePreview(payload.sourceCards ?? []);
+    } catch (sourceError) {
+      setError(sourceError instanceof Error ? sourceError.message : "资料包生成失败。");
     }
-    setSourcePreview(payload.sourceCards ?? []);
   }
 
   async function submit() {
@@ -200,17 +209,21 @@ export function SetupForm() {
     };
 
     startTransition(async () => {
-      const response = await fetch("/api/debate/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(preparedForm),
-      });
-      const payload = (await response.json()) as { session?: { id: string }; error?: string };
-      if (!response.ok || !payload.session) {
-        setError(payload.error ?? "创建辩论失败。");
-        return;
+      try {
+        const response = await secureFetch("/api/debate/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(preparedForm),
+        });
+        const payload = (await response.json()) as { session?: { id: string }; error?: string };
+        if (!response.ok || !payload.session) {
+          setError(payload.error ?? "创建辩论失败。");
+          return;
+        }
+        router.push(`/debate/${payload.session.id}`);
+      } catch (submitError) {
+        setError(submitError instanceof Error ? submitError.message : "创建辩论失败。");
       }
-      router.push(`/debate/${payload.session.id}`);
     });
   }
 
@@ -232,8 +245,8 @@ export function SetupForm() {
           <section className="grid gap-3 md:grid-cols-3">
             {[
               { id: "free" as const, label: "自由辩论", icon: Scale, body: "自动分正反或手写双方立场。" },
-              { id: "persona" as const, label: "人格辩论", icon: Users, body: "选择两位历史人格，按身份风格攻防。" },
-              { id: "research" as const, label: "热点联网", icon: Network, body: "先生成共享资料包，再进行事实约束辩论。" },
+              { id: "persona" as const, label: "人格辩论", icon: Users, body: "选择两位历史人格，按身份风格攻防。", phase: "Beta" },
+              { id: "research" as const, label: "热点联网", icon: Network, body: "先生成共享资料包，再进行事实约束辩论。", phase: "预览" },
             ].map((item) => {
               const Icon = item.icon;
               const active = form.mode === item.id;
@@ -245,7 +258,10 @@ export function SetupForm() {
                   type="button"
                 >
                   <Icon className="h-5 w-5 text-[var(--cinnabar)]" />
-                  <div className="mt-3 font-serif text-lg font-bold text-[var(--ink)]">{item.label}</div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 font-serif text-lg font-bold text-[var(--ink)]">
+                    {item.label}
+                    {item.phase ? <Badge tone="amber">{item.phase}</Badge> : null}
+                  </div>
                   <p className="mt-2 text-xs leading-5 text-[var(--muted)]">{item.body}</p>
                 </button>
               );
@@ -332,6 +348,11 @@ export function SetupForm() {
             </div>
           ) : null}
 
+          <div className="grid gap-4 sm:grid-cols-2">
+            <NumberField label="最大回合" max={200} min={1} onChange={(value) => update("maxRounds", value)} value={form.maxRounds} />
+            <NumberField label="断点频率" max={50} min={1} onChange={(value) => update("pauseEveryRounds", value)} value={form.pauseEveryRounds} />
+          </div>
+
           {(form.stanceMode === "custom" || form.mode === "persona") && (
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-2">
@@ -371,11 +392,11 @@ export function SetupForm() {
             </section>
           ) : null}
 
-          <details className="advanced-brief rounded-md border border-[var(--line)] bg-white/42" open>
+          <details className="advanced-brief rounded-md border border-[var(--line)] bg-white/42">
             <summary className="flex cursor-pointer items-center justify-between gap-4 p-4">
               <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--ink)]">
                 <Database className="h-4 w-4 text-[var(--lapis)]" />
-                模型席位与裁判参数
+                高级模型与裁判参数
               </span>
             </summary>
             <div className="space-y-5 border-t border-[var(--line)] p-4">
@@ -421,16 +442,15 @@ export function SetupForm() {
                 </select>
               </label>
 
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <NumberField label="最大回合" max={200} min={1} onChange={(value) => update("maxRounds", value)} value={form.maxRounds} />
-                <NumberField label="断点频率" max={50} min={1} onChange={(value) => update("pauseEveryRounds", value)} value={form.pauseEveryRounds} />
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 <NumberField label="低分线" max={100} min={1} onChange={(value) => update("lowScoreThreshold", value)} value={form.lowScoreThreshold} />
                 <NumberField label="连续低分" max={20} min={1} onChange={(value) => update("consecutiveLowLimit", value)} value={form.consecutiveLowLimit} />
+                <NumberField label="裁判置信度" max={1} min={0} onChange={(value) => update("judgeConfidence", value)} step={0.05} value={form.judgeConfidence} />
               </div>
             </div>
           </details>
 
-          {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]">{error}</p> : null}
+          {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]" role="alert">{error}</p> : null}
 
           <Button className="w-full" disabled={isPending} onClick={submit} size="lg">
             {isPending ? "正在立卷..." : "立卷并开庭"}

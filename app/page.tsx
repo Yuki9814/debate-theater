@@ -42,14 +42,16 @@ function planTone(remainingRounds: number) {
 
 export default async function Home() {
   const user = await getCurrentUser();
-  const [recentSessions, entitlement] = await Promise.all([
-    prisma.debateSession.findMany({
-      where: { userId: user.id },
-      orderBy: { updatedAt: "desc" },
-      take: 4,
-    }),
-    getBillingEntitlement(user.id),
-  ]);
+  const [recentSessions, entitlement] = user
+    ? await Promise.all([
+        prisma.debateSession.findMany({
+          where: { userId: user.id },
+          orderBy: { updatedAt: "desc" },
+          take: 4,
+        }),
+        getBillingEntitlement(user.id),
+      ])
+    : [[], await getBillingEntitlement("anonymous")];
   const exampleHref = recentSessions[0] ? `/debate/${recentSessions[0].id}` : "/history";
 
   return (

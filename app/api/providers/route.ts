@@ -1,9 +1,10 @@
 import { encryptApiKey } from "@/lib/ai";
 import { providerBaseUrlSchema } from "@/lib/ai/provider-url";
-import { getCurrentUser } from "@/lib/auth/session";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { errorResponse } from "@/lib/errors";
 import { providerView } from "@/lib/providers/view";
+import { requireMutationSecurity } from "@/lib/security/mutation";
 import { canEncryptSecrets } from "@/lib/security/secrets";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 import { z } from "zod";
@@ -17,14 +18,14 @@ const providerCreateSchema = z.object({
 });
 
 export async function GET(request: Request) {
-  const limit = consumeRateLimit("providers-list", request, {
+  const limit = await consumeRateLimit("providers-list", request, {
     limit: 120,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await getCurrentUser();
+    const user = await requireCurrentUser();
     const providers = await prisma.apiProvider.findMany({
       where: { userId: user.id },
       orderBy: { updatedAt: "desc" },
@@ -40,14 +41,15 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const limit = consumeRateLimit("providers-create", request, {
+  const limit = await consumeRateLimit("providers-create", request, {
     limit: 20,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await getCurrentUser();
+    requireMutationSecurity(request);
+    const user = await requireCurrentUser();
     const body = providerCreateSchema.parse(await request.json());
 
     const provider = await prisma.apiProvider.create({

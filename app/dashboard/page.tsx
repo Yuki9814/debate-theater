@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowRight, CheckCircle2, Clock, Landmark, PauseCircle, Sparkles, Terminal, Zap } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { BillingPanel } from "@/components/billing/billing-panel";
@@ -35,6 +36,7 @@ function statusText(status: string) {
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
+  if (!user) redirect("/login");
   const [sessions, entitlement] = await Promise.all([
     prisma.debateSession.findMany({
       where: { userId: user.id },

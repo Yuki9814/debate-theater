@@ -3,11 +3,13 @@ import { AppShell } from "@/components/layout/app-shell";
 import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { maskApiKey } from "@/lib/ai";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const user = await getCurrentUser();
+  if (!user) redirect("/login");
   const providers = await prisma.apiProvider.findMany({
     where: { userId: user.id },
     orderBy: { updatedAt: "desc" },

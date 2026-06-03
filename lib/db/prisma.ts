@@ -77,6 +77,16 @@ type AuthSessionRow = {
   createdAt: Date;
 };
 
+type AuthLoginTokenRow = {
+  id: string;
+  email: string;
+  name: string | null;
+  tokenHash: string;
+  expiresAt: Date;
+  usedAt: Date | null;
+  createdAt: Date;
+};
+
 type ApiProviderRow = {
   id: string;
   userId: string;
@@ -152,6 +162,13 @@ type BillingSubscriptionRow = {
   currentPeriodEnd: Date | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+type BillingWebhookEventRow = {
+  id: string;
+  stripeEventId: string;
+  eventType: string;
+  processedAt: Date;
 };
 
 type WaitlistLeadRow = {
@@ -320,6 +337,18 @@ function mapAuthSession(row: Row): AuthSessionRow {
   };
 }
 
+function mapAuthLoginToken(row: Row): AuthLoginTokenRow {
+  return {
+    id: String(row.id),
+    email: String(row.email),
+    name: row.name ? String(row.name) : null,
+    tokenHash: String(row.tokenHash),
+    expiresAt: asDate(row.expiresAt),
+    usedAt: row.usedAt ? asDate(row.usedAt) : null,
+    createdAt: asDate(row.createdAt),
+  };
+}
+
 function mapProvider(row: Row): ApiProviderRow {
   return {
     id: String(row.id),
@@ -411,6 +440,15 @@ function mapBillingSubscription(row: Row): BillingSubscriptionRow {
     currentPeriodEnd: row.currentPeriodEnd ? asDate(row.currentPeriodEnd) : null,
     createdAt: asDate(row.createdAt),
     updatedAt: asDate(row.updatedAt),
+  };
+}
+
+function mapBillingWebhookEvent(row: Row): BillingWebhookEventRow {
+  return {
+    id: String(row.id),
+    stripeEventId: String(row.stripeEventId),
+    eventType: String(row.eventType),
+    processedAt: asDate(row.processedAt),
   };
 }
 
@@ -527,6 +565,15 @@ export async function ensureDatabase() {
       "userId" TEXT NOT NULL,
       "tokenHash" TEXT NOT NULL UNIQUE,
       "expiresAt" TEXT NOT NULL,
+      "createdAt" TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS "AuthLoginToken" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "email" TEXT NOT NULL,
+      "name" TEXT,
+      "tokenHash" TEXT NOT NULL UNIQUE,
+      "expiresAt" TEXT NOT NULL,
+      "usedAt" TEXT,
       "createdAt" TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS "ApiProvider" (
@@ -653,6 +700,12 @@ export async function ensureDatabase() {
       "createdAt" TEXT NOT NULL,
       "updatedAt" TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS "BillingWebhookEvent" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "stripeEventId" TEXT NOT NULL UNIQUE,
+      "eventType" TEXT NOT NULL,
+      "processedAt" TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS "UsageEvent" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "userId" TEXT NOT NULL,
@@ -674,6 +727,8 @@ export async function ensureDatabase() {
     );
     CREATE INDEX IF NOT EXISTS "WaitlistLead_module_created_idx"
       ON "WaitlistLead" ("moduleId", "createdAt");
+    CREATE INDEX IF NOT EXISTS "AuthLoginToken_email_expires_idx"
+      ON "AuthLoginToken" ("email", "expiresAt");
     CREATE INDEX IF NOT EXISTS "UsageEvent_user_type_created_idx"
       ON "UsageEvent" ("userId", "eventType", "createdAt");
     CREATE INDEX IF NOT EXISTS "ResearchSourceCard_session_created_idx"
@@ -774,6 +829,7 @@ export const prisma = {
       getDb().prepare(`DELETE FROM "UsageEvent" WHERE "userId" = ?`).run(args.where.id);
       getDb().prepare(`DELETE FROM "Persona" WHERE "createdByUserId" = ?`).run(args.where.id);
       getDb().prepare(`DELETE FROM "AuthSession" WHERE "userId" = ?`).run(args.where.id);
+      getDb().prepare(`DELETE FROM "AuthLoginToken" WHERE "email" = (SELECT "email" FROM "User" WHERE "id" = ?)`).run(args.where.id);
       getDb().prepare(`DELETE FROM "User" WHERE "id" = ?`).run(args.where.id);
     },
   },
@@ -810,6 +866,59 @@ export const prisma = {
     async deleteExpired(args: { now: Date }) {
       await ensureDatabase();
       getDb().prepare(`DELETE FROM "AuthSession" WHERE "expiresAt" <= ?`).run(args.now.toISOString());
+    },
+  },
+  authLoginToken: {
+    async create(args: { data: { email: string; name?: string | null; tokenHash: string; expiresAt: Date } }) {
+      await ensureDatabase();
+      const createdAt = now();
+      const loginToken = {
+        id: id(),
+        email: args.data.email,
+        name: args.data.name ?? null,
+        tokenHash: args.data.tokenHash,
+        expiresAt: args.data.expiresAt.toISOString(),
+        usedAt: null as string | null,
+        createdAt,
+      };
+      getDb()
+        .prepare(
+          `INSERT INTO "AuthLoginToken" ("id", "email", "name", "tokenHash", "expiresAt", "usedAt", "createdAt")
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          loginToken.id,
+          loginToken.email,
+          loginToken.name,
+          loginToken.tokenHash,
+          loginToken.expiresAt,
+          loginToken.usedAt,
+          loginToken.createdAt,
+        );
+      return {
+        ...loginToken,
+        expiresAt: new Date(loginToken.expiresAt),
+        usedAt: null,
+        createdAt: new Date(loginToken.createdAt),
+      };
+    },
+    async findUnique(args: { where: { tokenHash: string } }) {
+      await ensureDatabase();
+      const row = getDb()
+        .prepare(`SELECT * FROM "AuthLoginToken" WHERE "tokenHash" = ?`)
+        .get(args.where.tokenHash) as Row | undefined;
+      return row ? mapAuthLoginToken(row) : null;
+    },
+    async markUsed(args: { where: { tokenHash: string }; usedAt: Date }) {
+      await ensureDatabase();
+      getDb()
+        .prepare(`UPDATE "AuthLoginToken" SET "usedAt" = ? WHERE "tokenHash" = ? AND "usedAt" IS NULL`)
+        .run(args.usedAt.toISOString(), args.where.tokenHash);
+      return prisma.authLoginToken.findUnique(args);
+    },
+    async deleteExpired(args: { now: Date }) {
+      await ensureDatabase();
+      getDb().prepare(`DELETE FROM "AuthLoginToken" WHERE "expiresAt" <= ? OR "usedAt" IS NOT NULL`).run(args.now.toISOString());
     },
   },
   apiProvider: {
@@ -1416,6 +1525,29 @@ export const prisma = {
           now(),
           args.stripeSubscriptionId,
       );
+    },
+  },
+  billingWebhookEvent: {
+    async findUnique(args: { where: { stripeEventId: string } }) {
+      await ensureDatabase();
+      const row = getDb()
+        .prepare(`SELECT * FROM "BillingWebhookEvent" WHERE "stripeEventId" = ?`)
+        .get(args.where.stripeEventId) as Row | undefined;
+      return row ? mapBillingWebhookEvent(row) : null;
+    },
+    async create(args: { data: { stripeEventId: string; eventType: string } }) {
+      await ensureDatabase();
+      const processedAt = now();
+      getDb()
+        .prepare(
+          `INSERT INTO "BillingWebhookEvent" ("id", "stripeEventId", "eventType", "processedAt")
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(id(), args.data.stripeEventId, args.data.eventType, processedAt);
+      const row = getDb()
+        .prepare(`SELECT * FROM "BillingWebhookEvent" WHERE "stripeEventId" = ?`)
+        .get(args.data.stripeEventId) as Row;
+      return mapBillingWebhookEvent(row);
     },
   },
   waitlistLead: {

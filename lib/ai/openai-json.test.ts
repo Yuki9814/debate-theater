@@ -159,6 +159,7 @@ describe("OpenAIProvider JSON mode and parsing", () => {
   });
 
   it("uses normalized custom base URL without duplicate slashes", async () => {
+    const originalAllowlist = process.env.PROVIDER_BASE_URL_ALLOWLIST;
     let capturedUrl: string | undefined;
     const mockFetch = mock.fn(async (url: string | URL | Request) => {
       capturedUrl = String(url);
@@ -169,6 +170,7 @@ describe("OpenAIProvider JSON mode and parsing", () => {
     globalThis.fetch = mockFetch as unknown as typeof fetch;
 
     try {
+      process.env.PROVIDER_BASE_URL_ALLOWLIST = "api.example.com";
       const provider = new OpenAIProvider({
         apiKey: "test-key",
         baseUrl: "https://api.example.com/v1///"
@@ -179,6 +181,7 @@ describe("OpenAIProvider JSON mode and parsing", () => {
       assert.equal(capturedUrl.includes("//chat"), false);
     } finally {
       globalThis.fetch = originalFetch;
+      setEnv("PROVIDER_BASE_URL_ALLOWLIST", originalAllowlist);
     }
   });
 

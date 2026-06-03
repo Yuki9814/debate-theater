@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { getCurrentUser } from "@/lib/auth/session";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { getBillingEntitlement } from "@/lib/billing/service";
 import { sessionInclude } from "@/lib/debate/engine";
 import { exportSessionAsMarkdown } from "@/lib/debate/recap";
 import { serializeSession } from "@/lib/debate/serializers";
 import { prisma } from "@/lib/db/prisma";
 import { AppError, errorResponse } from "@/lib/errors";
+import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 
 type RouteContext = {
@@ -26,14 +27,15 @@ function safeFileName(topic: string, format: "markdown" | "json") {
 
 export async function POST(request: Request, context: RouteContext) {
   const { sessionId } = await context.params;
-  const limit = consumeRateLimit("debate-session-export", request, {
+  const limit = await consumeRateLimit("debate-session-export", request, {
     limit: 20,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await getCurrentUser();
+    requireMutationSecurity(request);
+    const user = await requireCurrentUser();
     const body = exportSchema.parse(await request.json());
     const session = await prisma.debateSession.findUnique({
       where: { id: sessionId },

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { AppError, errorResponse } from "@/lib/errors";
 
 type StripeEvent = {
+  id?: string;
   type: string;
   data?: {
     object?: {
@@ -36,6 +37,16 @@ export async function POST(request: Request) {
     verifyStripeSignature(payload, request.headers.get("stripe-signature"), secret);
     const event = JSON.parse(payload) as StripeEvent;
     const object = event.data?.object;
+    const eventId = event.id?.trim();
+
+    if (eventId) {
+      const existing = await prisma.billingWebhookEvent.findUnique({
+        where: { stripeEventId: eventId },
+      });
+      if (existing) {
+        return Response.json({ received: true, duplicate: true });
+      }
+    }
 
     if (event.type === "checkout.session.completed" && object) {
       const userId = object.metadata?.userId ?? object.client_reference_id;
@@ -64,6 +75,15 @@ export async function POST(request: Request) {
         stripeSubscriptionId: object.id,
         status: object.status ?? "unknown",
         currentPeriodEnd: normalizeStripePeriodEnd(object.current_period_end),
+      });
+    }
+
+    if (eventId) {
+      await prisma.billingWebhookEvent.create({
+        data: {
+          stripeEventId: eventId,
+          eventType: event.type,
+        },
       });
     }
 

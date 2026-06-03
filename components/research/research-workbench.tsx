@@ -6,6 +6,7 @@ import { ArrowRight, Network, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
+import { secureFetch } from "@/lib/security/secure-fetch";
 
 type SourceCard = {
   title: string;
@@ -25,17 +26,21 @@ export function ResearchWorkbench() {
   function collect() {
     setError(null);
     startTransition(async () => {
-      const response = await fetch("/api/research/source-cards", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic }),
-      });
-      const payload = (await response.json()) as { sourceCards?: SourceCard[]; error?: string };
-      if (!response.ok) {
-        setError(payload.error ?? "资料包生成失败。");
-        return;
+      try {
+        const response = await secureFetch("/api/research/source-cards", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ topic }),
+        });
+        const payload = (await response.json()) as { sourceCards?: SourceCard[]; error?: string };
+        if (!response.ok) {
+          setError(payload.error ?? "资料包生成失败。");
+          return;
+        }
+        setCards(payload.sourceCards ?? []);
+      } catch (collectError) {
+        setError(collectError instanceof Error ? collectError.message : "资料包生成失败。");
       }
-      setCards(payload.sourceCards ?? []);
     });
   }
 
@@ -67,7 +72,7 @@ export function ResearchWorkbench() {
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
-        {error ? <p className="mt-4 rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]">{error}</p> : null}
+        {error ? <p className="mt-4 rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]" role="alert">{error}</p> : null}
       </Panel>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

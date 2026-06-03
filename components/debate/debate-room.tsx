@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
 import type { DebateRoundDTO, DebateSessionDTO, OutputMode, ParticipantDTO } from "@/lib/debate/types";
 import { getPersonaPreset } from "@/lib/persona/presets";
+import { secureFetch } from "@/lib/security/secure-fetch";
 import { cn, estimateTokens, formatDateTime } from "@/lib/utils";
 
 function scoreFor(round: DebateRoundDTO | undefined, side: "A" | "B") {
@@ -94,6 +95,14 @@ function winnerText(winner: string | null) {
   if (winner === "Round limit reached" || winner === "达到轮数上限") return "达到轮数上限";
   return winner;
 }
+
+const scoreDimensions = [
+  ["logic", "逻辑"],
+  ["evidence", "论据"],
+  ["rebuttal", "反驳"],
+  ["clarity", "表达"],
+  ["personaFidelity", "人格"],
+] as const;
 
 function SpeechText({ text, mode, side }: { text: string; mode: OutputMode | string; side: "A" | "B" }) {
   const isA = side === "A";
@@ -220,6 +229,8 @@ function RoundSpeech({
 function JudgeMinute({ round }: { round: DebateRoundDTO }) {
   const aScore = scoreFor(round, "A");
   const bScore = scoreFor(round, "B");
+  const aDetail = round.scores.find((score) => score.side === "A");
+  const bDetail = round.scores.find((score) => score.side === "B");
 
   return (
     <section className="mx-auto rounded-md border border-[var(--brass)]/30 bg-[var(--brass-soft)]/35 p-4 sm:max-w-[92%]">
@@ -237,6 +248,33 @@ function JudgeMinute({ round }: { round: DebateRoundDTO }) {
         </div>
       </div>
       <p className="text-sm leading-7 text-[var(--ink-soft)]">{round.judgeSummary}</p>
+      {aDetail && bDetail ? (
+        <div className="mt-4 grid gap-3 border-t border-[var(--line)] pt-3">
+          <div className="grid gap-2">
+            {scoreDimensions.map(([key, label]) => {
+              const aValue = aDetail[key];
+              const bValue = bDetail[key];
+              return (
+                <div className="grid grid-cols-[42px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2 text-[11px]" key={key}>
+                  <span className="font-semibold text-[var(--muted)]">{label}</span>
+                  <span className="rounded bg-white/45 px-2 py-1 text-[var(--cinnabar)]">甲 {aValue}</span>
+                  <span className="rounded bg-white/45 px-2 py-1 text-[var(--lapis)]">乙 {bValue}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="grid gap-2 text-xs leading-5 text-[var(--muted)] sm:grid-cols-2">
+            <p className="rounded-md bg-white/35 p-2">
+              <span className="font-semibold text-[var(--cinnabar)]">甲方扣分理由：</span>
+              {aDetail.comment ?? "暂无单独扣分说明。"}
+            </p>
+            <p className="rounded-md bg-white/35 p-2">
+              <span className="font-semibold text-[var(--lapis)]">乙方扣分理由：</span>
+              {bDetail.comment ?? "暂无单独扣分说明。"}
+            </p>
+          </div>
+        </div>
+      ) : null}
       {round.judgeComment ? (
         <p className="mt-3 border-t border-[var(--line)] pt-3 text-xs leading-6 text-[var(--muted)]">{round.judgeComment}</p>
       ) : null}
@@ -290,7 +328,7 @@ function ConversationHall({
 
       <div className="relative p-4 sm:p-6">
         {session.rounds.length === 0 ? (
-          <div className="flex min-h-[420px] flex-col items-center justify-center gap-4 rounded-md border border-dashed border-[var(--line-strong)] bg-white/28 p-8 text-center">
+          <div className="flex min-h-[420px] flex-col items-center justify-center gap-4 rounded-md border border-dashed border-[var(--line-strong)] bg-white/28 p-8 text-center" role="status">
             <Activity className="h-6 w-6 text-[var(--cinnabar)] ink-pulse" />
             <div>
               <h3 className="font-serif text-xl font-bold text-[var(--ink)]">对话厅尚未开声</h3>
@@ -327,7 +365,7 @@ function ConversationHall({
         )}
 
         {isRoundRunning ? (
-          <div className="mt-6 rounded-md border border-[var(--lapis)]/35 bg-[var(--lapis-soft)]/55 p-4 text-sm leading-6 text-[var(--lapis)]">
+          <div className="mt-6 rounded-md border border-[var(--lapis)]/35 bg-[var(--lapis-soft)]/55 p-4 text-sm leading-6 text-[var(--lapis)]" role="status">
             <div className="flex items-center gap-2 font-semibold">
               <span className="h-2 w-2 rounded-full bg-[var(--lapis)] ink-pulse" />
               正在生成下一轮
@@ -443,7 +481,7 @@ function RecapPanel({ session }: { session: DebateSessionDTO }) {
   async function requestExport(format: "markdown" | "json") {
     setExportState({ loading: format, message: null, preview: null, error: null });
     try {
-      const response = await fetch(`/api/debate/sessions/${session.id}/export`, {
+      const response = await secureFetch(`/api/debate/sessions/${session.id}/export`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ format }),
@@ -572,7 +610,7 @@ function RecapPanel({ session }: { session: DebateSessionDTO }) {
         </div>
       ) : null}
       {exportState.error ? (
-        <div className="mt-4 flex gap-2 rounded-md border border-[var(--rose)]/35 bg-[var(--rose-soft)] p-3 text-xs leading-5 text-[var(--rose)]">
+        <div className="mt-4 flex gap-2 rounded-md border border-[var(--rose)]/35 bg-[var(--rose-soft)] p-3 text-xs leading-5 text-[var(--rose)]" role="alert">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {exportState.error}
         </div>
@@ -662,7 +700,7 @@ function RoundTimeline({ rounds }: { rounds: DebateRoundDTO[] }) {
 
       <div className="thin-scrollbar flex-1 space-y-3 overflow-y-auto pr-1">
         {rounds.length === 0 ? (
-          <div className="flex min-h-[200px] items-center justify-center text-center text-sm text-[var(--muted)]">
+          <div className="flex min-h-[200px] items-center justify-center text-center text-sm text-[var(--muted)]" role="status">
             暂无回合卷页。
           </div>
         ) : (
@@ -715,6 +753,7 @@ function ControlConsole({
   const isRunning = session.status === "running";
   const isClosed = session.status === "ended" || session.status === "stopped";
   const [isExpanded, setIsExpanded] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<string | null>(null);
   const nextRound = Math.min(session.currentRound + 1, session.maxRounds);
   const resumeLabel = session.status === "awaiting_confirmation" || session.status === "paused" ? `继续第 ${nextRound} 轮` : "续审";
 
@@ -723,6 +762,25 @@ function ControlConsole({
     : session.status === "paused" || session.status === "awaiting_confirmation"
       ? "bg-[var(--brass)]"
       : "bg-[var(--muted-light)]";
+
+  function requestStop() {
+    if (confirmAction !== "stop") {
+      setConfirmAction("stop");
+      return;
+    }
+    setConfirmAction(null);
+    onStop();
+  }
+
+  function requestForce(winner: string) {
+    const action = `force:${winner}`;
+    if (confirmAction !== action) {
+      setConfirmAction(action);
+      return;
+    }
+    setConfirmAction(null);
+    onForce(winner);
+  }
 
   return (
     <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-40 rounded-md border border-[var(--line)] bg-[var(--console-bg)] px-3 py-2 shadow-[var(--console-shadow)] backdrop-blur-xl md:inset-x-0 md:bottom-0 md:left-[76px] md:rounded-none md:border-x-0 md:border-b-0 md:px-4 md:py-3">
@@ -747,29 +805,29 @@ function ControlConsole({
 
         <div className={cn("flex flex-wrap items-center gap-2", !isExpanded && "hidden md:flex")}>
           {session.status === "draft" ? (
-            <Button disabled={isPending || isClosed} onClick={onStart} size="sm" title="开始自动生成第一轮攻防">
+            <Button disabled={isPending || isClosed} onClick={() => { setConfirmAction(null); onStart(); }} size="sm" title="开始自动生成第一轮攻防">
               <Play className="h-3.5 w-3.5" />
               开庭
             </Button>
           ) : (
             <>
-              <Button disabled={isPending || !isRunning} onClick={onPause} size="sm" title="暂停生成，保留当前卷宗状态" variant="secondary">
+              <Button disabled={isPending || !isRunning} onClick={() => { setConfirmAction(null); onPause(); }} size="sm" title="暂停生成，保留当前卷宗状态" variant="secondary">
                 <Pause className="h-3.5 w-3.5" />
                 断点
               </Button>
-              <Button disabled={isPending || !canRun || isClosed} onClick={onResume} size="sm" title={`继续生成第 ${nextRound} 轮`}>
+              <Button disabled={isPending || !canRun || isClosed} onClick={() => { setConfirmAction(null); onResume(); }} size="sm" title={`继续生成第 ${nextRound} 轮`}>
                 <Play className="h-3.5 w-3.5" />
                 {resumeLabel}
               </Button>
             </>
           )}
-          <Button disabled={isPending || isClosed} onClick={onNext} size="sm" title={`手动生成第 ${nextRound} 轮`} variant="secondary">
+          <Button disabled={isPending || isClosed} onClick={() => { setConfirmAction(null); onNext(); }} size="sm" title={`手动生成第 ${nextRound} 轮`} variant="secondary">
             <FastForward className="h-3.5 w-3.5" />
             下一轮
           </Button>
-          <Button disabled={isPending || isClosed} onClick={onStop} size="sm" title="停止辩论并保留已有卷宗" variant="danger">
+          <Button disabled={isPending || isClosed} onClick={requestStop} size="sm" title="停止辩论并保留已有卷宗" variant="danger">
             <CircleStop className="h-3.5 w-3.5" />
-            休庭
+            {confirmAction === "stop" ? "确认休庭" : "休庭"}
           </Button>
         </div>
 
@@ -785,14 +843,19 @@ function ControlConsole({
                 className="rounded-md border border-[var(--line)] bg-white/45 px-2.5 py-1.5 text-xs font-semibold text-[var(--muted)] transition hover:border-[var(--ink)] hover:text-[var(--ink)] disabled:pointer-events-none disabled:opacity-40"
                 disabled={isPending || isClosed}
                 key={winner}
-                onClick={() => onForce(winner)}
+                onClick={() => requestForce(winner)}
                 type="button"
               >
-                {label}
+                {confirmAction === `force:${winner}` ? `确认${label}` : label}
               </button>
             ))}
           </div>
         </div>
+        {confirmAction ? (
+          <div className="basis-full text-xs text-[var(--brass)]" role="status">
+            {confirmAction === "stop" ? "再次点击休庭会中止辩论并保留已有卷宗。" : "再次点击会立即写入强制裁决。"}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -816,7 +879,7 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
   );
 
   async function patchSession(body: { status?: string; winner?: string | null; maxRounds?: number }) {
-    const response = await fetch(`/api/debate/sessions/${session.id}`, {
+    const response = await secureFetch(`/api/debate/sessions/${session.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -834,7 +897,7 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
     setError(null);
 
     try {
-      const response = await fetch(`/api/debate/sessions/${initialSession.id}/stream`, {
+      const response = await secureFetch(`/api/debate/sessions/${initialSession.id}/stream`, {
         method: "POST",
       });
       if (!response.ok || !response.body) {
@@ -911,20 +974,20 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
       </header>
 
       {session.status === "awaiting_confirmation" ? (
-        <div className="mb-5 rounded-md border border-[var(--brass)]/35 bg-[var(--brass-soft)] p-4 text-sm text-[var(--brass)]">
+        <div className="mb-5 rounded-md border border-[var(--brass)]/35 bg-[var(--brass-soft)] p-4 text-sm text-[var(--brass)]" role="status">
           庭审触发断点复核：第 {session.currentRound} 轮已挂起。下一步可继续生成第{" "}
           {Math.min(session.currentRound + 1, session.maxRounds)} 轮。
         </div>
       ) : null}
 
       {streamMessage ? (
-        <div className="mb-5 rounded-md border border-[var(--lapis)]/35 bg-[var(--lapis-soft)] p-4 text-sm text-[var(--lapis)]">
+        <div className="mb-5 rounded-md border border-[var(--lapis)]/35 bg-[var(--lapis-soft)] p-4 text-sm text-[var(--lapis)]" role="status">
           {streamMessage}
         </div>
       ) : null}
 
       {error ? (
-        <div className="mb-5 rounded-md border border-[var(--rose)]/35 bg-[var(--rose-soft)] p-4 text-sm text-[var(--rose)]">
+        <div className="mb-5 rounded-md border border-[var(--rose)]/35 bg-[var(--rose-soft)] p-4 text-sm text-[var(--rose)]" role="alert">
           庭务调用故障：{error}
         </div>
       ) : null}

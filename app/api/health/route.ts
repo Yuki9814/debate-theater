@@ -7,6 +7,23 @@ function configured(value: string | undefined) {
 
 export async function GET() {
   const authenticated = await getAuthenticatedUser();
+  const adminEmails = new Set(
+    process.env.ADMIN_EMAILS?.split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean) ?? [],
+  );
+  const isAdmin = authenticated ? adminEmails.has(authenticated.email.toLowerCase()) : false;
+
+  const publicStatus = {
+    ok: true,
+    app: "debate-theater",
+    timestamp: new Date().toISOString(),
+  };
+
+  if (!isAdmin) {
+    return Response.json(publicStatus);
+  }
+
   const authConfigured = configured(process.env.AUTH_PROVIDER) || configured(process.env.AUTH_SECRET);
   const stripeConfigured =
     configured(process.env.STRIPE_SECRET_KEY) &&
@@ -23,9 +40,7 @@ export async function GET() {
   ].filter(Boolean);
 
   return Response.json({
-    ok: true,
-    app: "debate-theater",
-    mockMode: true,
+    ...publicStatus,
     secretEncryptionConfigured: canEncryptSecrets(),
     productionReady: blockers.length === 0,
     checks: {
@@ -35,6 +50,5 @@ export async function GET() {
       monitoringConfigured,
     },
     blockers,
-    timestamp: new Date().toISOString(),
   });
 }

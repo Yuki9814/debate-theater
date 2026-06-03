@@ -5,6 +5,7 @@ import { AlertCircle, Check, CreditCard, Loader2, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
+import { secureFetch } from "@/lib/security/secure-fetch";
 import { cn } from "@/lib/utils";
 
 type Plan = {
@@ -72,6 +73,7 @@ export function BillingPanel() {
       })
       .catch((err) => {
         console.error("Failed to fetch entitlements:", err);
+        setError("订阅状态同步失败，请稍后刷新。");
         setLoading(false);
       });
   }, []);
@@ -83,7 +85,7 @@ export function BillingPanel() {
     setError(null);
 
     try {
-      const res = await fetch("/api/billing/checkout", {
+      const res = await secureFetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ planId }),
@@ -123,7 +125,7 @@ export function BillingPanel() {
         {loading ? (
           <Badge tone="neutral">
             <Loader2 className="h-3 w-3 animate-spin" />
-            同步中
+            <span role="status">同步中</span>
           </Badge>
         ) : (
           <Badge tone="emerald">{plans.find((plan) => plan.id === currentPlanId)?.name || "已启用"}</Badge>
@@ -214,7 +216,7 @@ export function BillingPanel() {
       </div>
 
       {error ? (
-        <div className="mx-5 mb-5 flex items-center gap-3 rounded-md border border-[var(--rose)]/30 bg-[var(--rose-soft)] p-4 text-sm text-[var(--rose)] sm:mx-6 sm:mb-6">
+        <div className="mx-5 mb-5 flex items-center gap-3 rounded-md border border-[var(--rose)]/30 bg-[var(--rose-soft)] p-4 text-sm text-[var(--rose)] sm:mx-6 sm:mb-6" role="alert">
           <AlertCircle className="h-5 w-5 shrink-0" />
           {error}
         </div>

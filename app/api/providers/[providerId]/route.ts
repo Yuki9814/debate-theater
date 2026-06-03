@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { providerBaseUrlSchema } from "@/lib/ai/provider-url";
-import { getCurrentUser } from "@/lib/auth/session";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { errorResponse } from "@/lib/errors";
 import { providerView } from "@/lib/providers/view";
+import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 
 type RouteContext = {
@@ -18,7 +19,7 @@ const providerUpdateSchema = z.object({
 });
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const limit = consumeRateLimit("providers-update", request, {
+  const limit = await consumeRateLimit("providers-update", request, {
     limit: 30,
     windowMs: 60_000,
   });
@@ -26,7 +27,8 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   try {
     const { providerId } = await context.params;
-    const user = await getCurrentUser();
+    requireMutationSecurity(request);
+    const user = await requireCurrentUser();
     const body = providerUpdateSchema.parse(await request.json());
     const update: Parameters<typeof prisma.apiProvider.update>[0]["data"] = {};
     if (typeof body.providerName !== "undefined") update.providerName = body.providerName;
@@ -45,7 +47,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(request: Request, context: RouteContext) {
-  const limit = consumeRateLimit("providers-delete", request, {
+  const limit = await consumeRateLimit("providers-delete", request, {
     limit: 20,
     windowMs: 60_000,
   });
@@ -53,7 +55,8 @@ export async function DELETE(request: Request, context: RouteContext) {
 
   try {
     const { providerId } = await context.params;
-    const user = await getCurrentUser();
+    requireMutationSecurity(request);
+    const user = await requireCurrentUser();
     await prisma.apiProvider.delete({ where: { id: providerId, userId: user.id } });
     return Response.json({ ok: true });
   } catch (error) {

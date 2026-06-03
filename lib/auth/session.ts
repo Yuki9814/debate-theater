@@ -1,21 +1,35 @@
 import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
+import { AppError } from "@/lib/errors";
 import { prisma } from "../db/prisma.ts";
+import { authCookieName, csrfCookieName } from "./constants.ts";
 
-export const authCookieName = "lunheng_session";
+export { authCookieName, csrfCookieName };
 
 const demoUser = {
   email: "demo@debate-theater.local",
   name: "论衡剧场本地用户",
 };
 
+const loginTokenTtlMinutes = 15;
+
 export function hashSessionToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+export function isDemoModeAllowed() {
+  return process.env.NODE_ENV !== "production" && process.env.DEMO_MODE === "true";
 }
 
 function sessionExpiresAt() {
   const date = new Date();
   date.setDate(date.getDate() + 30);
+  return date;
+}
+
+function loginTokenExpiresAt() {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() + loginTokenTtlMinutes);
   return date;
 }
 
@@ -26,6 +40,16 @@ function cookieOptions(expires: Date) {
     secure: process.env.NODE_ENV === "production",
     path: "/",
     expires,
+  };
+}
+
+function clearCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    expires: new Date(0),
   };
 }
 
@@ -57,32 +81,72 @@ export async function getAuthenticatedUser() {
 }
 
 export async function getCurrentUser() {
-  return (await getAuthenticatedUser()) ?? ensureDemoUser();
+  const authenticated = await getAuthenticatedUser();
+  if (authenticated) return authenticated;
+  if (isDemoModeAllowed()) return ensureDemoUser();
+  return null;
 }
 
-export async function signInWithEmail(input: { email: string; name?: string | null }) {
-  const email = input.email.trim().toLowerCase();
-  const user = await prisma.user.upsert({
-    where: { email },
-    update: {},
-    create: {
-      email,
-      name: input.name?.trim() || email.split("@")[0] || "论衡用户",
-    },
-  });
+export async function requireCurrentUser() {
+  const user = await getCurrentUser();
+  if (!user) {
+    throw new AppError("请先登录后再继续。", 401, "AUTH_REQUIRED");
+  }
+  return user;
+}
 
+export async function createLoginLink(input: { email: string; name?: string | null; origin: string }) {
+  const email = input.email.trim().toLowerCase();
+  await prisma.authLoginToken.deleteExpired({ now: new Date() });
   const token = randomBytes(32).toString("base64url");
-  const expiresAt = sessionExpiresAt();
-  await prisma.authSession.create({
+  const expiresAt = loginTokenExpiresAt();
+  await prisma.authLoginToken.create({
     data: {
-      userId: user.id,
+      email,
+      name: input.name?.trim() || null,
       tokenHash: hashSessionToken(token),
       expiresAt,
     },
   });
 
+  const verificationUrl = new URL("/login", input.origin);
+  verificationUrl.searchParams.set("token", token);
+  return {
+    expiresAt,
+    verificationUrl: verificationUrl.toString(),
+  };
+}
+
+export async function verifyLoginToken(token: string) {
+  await prisma.authLoginToken.deleteExpired({ now: new Date() });
+  const tokenHash = hashSessionToken(token);
+  const loginToken = await prisma.authLoginToken.findUnique({ where: { tokenHash } });
+  if (!loginToken || loginToken.usedAt || loginToken.expiresAt <= new Date()) {
+    throw new AppError("登录链接已失效，请重新申请。", 401, "LOGIN_TOKEN_EXPIRED");
+  }
+
+  const user = await prisma.user.upsert({
+    where: { email: loginToken.email },
+    update: {},
+    create: {
+      email: loginToken.email,
+      name: loginToken.name?.trim() || loginToken.email.split("@")[0] || "论衡用户",
+    },
+  });
+
+  const sessionToken = randomBytes(32).toString("base64url");
+  const expiresAt = sessionExpiresAt();
+  await prisma.authSession.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashSessionToken(sessionToken),
+      expiresAt,
+    },
+  });
+
   const cookieStore = await cookies();
-  cookieStore.set(authCookieName, token, cookieOptions(expiresAt));
+  cookieStore.set(authCookieName, sessionToken, cookieOptions(expiresAt));
+  await prisma.authLoginToken.markUsed({ where: { tokenHash }, usedAt: new Date() });
   return user;
 }
 
@@ -92,7 +156,7 @@ export async function signOut() {
   if (token) {
     await prisma.authSession.delete({ where: { tokenHash: hashSessionToken(token) } });
   }
-  cookieStore.delete(authCookieName);
+  cookieStore.set(authCookieName, "", clearCookieOptions());
 }
 
 export async function deleteCurrentAccount() {
@@ -100,6 +164,6 @@ export async function deleteCurrentAccount() {
   if (!user) return false;
   await prisma.user.deleteCascade({ where: { id: user.id } });
   const cookieStore = await cookies();
-  cookieStore.delete(authCookieName);
+  cookieStore.set(authCookieName, "", clearCookieOptions());
   return true;
 }

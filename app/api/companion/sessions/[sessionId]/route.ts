@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { getCurrentUser } from "@/lib/auth/session";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { advanceCompanionSession, rollbackCompanionSession } from "@/lib/companion/engine";
 import { prisma } from "@/lib/db/prisma";
 import { errorResponse } from "@/lib/errors";
+import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 
 type RouteContext = {
@@ -14,15 +15,16 @@ const actionSchema = z.object({
 });
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const limit = consumeRateLimit("companion-session-action", request, {
+  const limit = await consumeRateLimit("companion-session-action", request, {
     limit: 30,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
+    requireMutationSecurity(request);
     const { sessionId } = await context.params;
-    const user = await getCurrentUser();
+    const user = await requireCurrentUser();
     const body = actionSchema.parse(await request.json());
     if (body.action === "advance") {
       return Response.json({ session: await advanceCompanionSession(user.id, sessionId) });

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { recommendPersonaTopics } from "@/lib/persona/presets";
 import { errorResponse } from "@/lib/errors";
+import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 
 const recommendSchema = z.object({
@@ -9,13 +10,14 @@ const recommendSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const limit = consumeRateLimit("personas-recommend-topics", request, {
+  const limit = await consumeRateLimit("personas-recommend-topics", request, {
     limit: 40,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
+    requireMutationSecurity(request);
     const body = recommendSchema.parse(await request.json());
     return Response.json({ topics: recommendPersonaTopics(body.left, body.right) });
   } catch (error) {

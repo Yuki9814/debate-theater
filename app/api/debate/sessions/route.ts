@@ -1,19 +1,20 @@
-import { getCurrentUser } from "@/lib/auth/session";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { createDebateSession, sessionInclude } from "@/lib/debate/engine";
 import { serializeSession } from "@/lib/debate/serializers";
 import { prisma } from "@/lib/db/prisma";
 import { errorResponse } from "@/lib/errors";
+import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 
 export async function GET(request: Request) {
-  const limit = consumeRateLimit("debate-sessions-list", request, {
+  const limit = await consumeRateLimit("debate-sessions-list", request, {
     limit: 120,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await getCurrentUser();
+    const user = await requireCurrentUser();
     const sessions = await prisma.debateSession.findMany({
       where: { userId: user.id },
       orderBy: { updatedAt: "desc" },
@@ -29,15 +30,16 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const limit = consumeRateLimit("debate-sessions-create", request, {
+  const limit = await consumeRateLimit("debate-sessions-create", request, {
     limit: 20,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
+    requireMutationSecurity(request);
     const body = await request.json();
-    const user = await getCurrentUser();
+    const user = await requireCurrentUser();
     const session = await createDebateSession(body, user.id);
     return Response.json({ session }, { status: 201 });
   } catch (error) {

@@ -1,6 +1,7 @@
-import { getCurrentUser } from "@/lib/auth/session";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { runNextRound, updateSessionStatus } from "@/lib/debate/engine";
 import { errorResponse } from "@/lib/errors";
+import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 
 type RouteContext = {
@@ -13,14 +14,15 @@ function event(name: string, data: unknown) {
 
 export async function POST(request: Request, context: RouteContext) {
   const { sessionId } = await context.params;
-  const limit = consumeRateLimit("debate-round-stream", request, {
+  const limit = await consumeRateLimit("debate-round-stream", request, {
     limit: 30,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
-    const user = await getCurrentUser();
+    requireMutationSecurity(request);
+    const user = await requireCurrentUser();
     await updateSessionStatus({ sessionId, userId: user.id, status: "running" });
 
     const stream = new ReadableStream({
@@ -34,9 +36,9 @@ export async function POST(request: Request, context: RouteContext) {
           const session = await runNextRound(sessionId, user.id);
           send("session", { session });
           send("done", { ok: true });
-        } catch (streamError) {
+        } catch {
           send("error", {
-            error: streamError instanceof Error ? streamError.message : "流式生成失败。",
+            error: "回合生成失败，请稍后重试。",
           });
         } finally {
           controller.close();

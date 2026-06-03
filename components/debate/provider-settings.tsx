@@ -5,6 +5,7 @@ import { Database, HardDrive, Info, KeyRound, Plus, ShieldCheck, Trash2, Wifi } 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
+import { secureFetch } from "@/lib/security/secure-fetch";
 
 type ProviderView = {
   id: string;
@@ -27,26 +28,31 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
   });
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   function submit() {
     setError(null);
     setMessage(null);
     startTransition(async () => {
-      const response = await fetch("/api/providers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      const payload = (await response.json()) as { provider?: ProviderView; error?: string };
+      try {
+        const response = await secureFetch("/api/providers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        });
+        const payload = (await response.json()) as { provider?: ProviderView; error?: string };
 
-      if (!response.ok || !payload.provider) {
-        setError(payload.error ?? "保存供应商失败。");
-        return;
+        if (!response.ok || !payload.provider) {
+          setError(payload.error ?? "保存供应商失败。");
+          return;
+        }
+
+        setProviders((current) => [payload.provider as ProviderView, ...current]);
+        setForm((current) => ({ ...current, apiKey: "" }));
+        setMessage("接入器已保存，可在开题页分别挂载到甲乙和裁判席。");
+      } catch (submitError) {
+        setError(submitError instanceof Error ? submitError.message : "保存供应商失败。");
       }
-
-      setProviders((current) => [payload.provider as ProviderView, ...current]);
-      setForm((current) => ({ ...current, apiKey: "" }));
-      setMessage("接入器已保存，可在开题页分别挂载到甲乙和裁判席。");
     });
   }
 
@@ -54,32 +60,46 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
     setError(null);
     setMessage(null);
     startTransition(async () => {
-      const response = await fetch(`/api/providers/${providerId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const payload = (await response.json()) as { provider?: ProviderView; error?: string };
-      if (!response.ok || !payload.provider) {
-        setError(payload.error ?? "更新接入器失败。");
-        return;
+      try {
+        const response = await secureFetch(`/api/providers/${providerId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const payload = (await response.json()) as { provider?: ProviderView; error?: string };
+        if (!response.ok || !payload.provider) {
+          setError(payload.error ?? "更新接入器失败。");
+          return;
+        }
+        setProviders((current) => current.map((provider) => (provider.id === providerId ? payload.provider as ProviderView : provider)));
+      } catch (patchError) {
+        setError(patchError instanceof Error ? patchError.message : "更新接入器失败。");
       }
-      setProviders((current) => current.map((provider) => (provider.id === providerId ? payload.provider as ProviderView : provider)));
     });
   }
 
   function deleteProvider(providerId: string) {
+    if (confirmDeleteId !== providerId) {
+      setConfirmDeleteId(providerId);
+      setMessage("再次点击删除，会移除该接入器配置。");
+      return;
+    }
     setError(null);
     setMessage(null);
     startTransition(async () => {
-      const response = await fetch(`/api/providers/${providerId}`, { method: "DELETE" });
-      const payload = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setError(payload.error ?? "删除接入器失败。");
-        return;
+      try {
+        const response = await secureFetch(`/api/providers/${providerId}`, { method: "DELETE" });
+        const payload = (await response.json()) as { error?: string };
+        if (!response.ok) {
+          setError(payload.error ?? "删除接入器失败。");
+          return;
+        }
+        setProviders((current) => current.filter((provider) => provider.id !== providerId));
+        setConfirmDeleteId(null);
+        setMessage("接入器已删除。");
+      } catch (deleteError) {
+        setError(deleteError instanceof Error ? deleteError.message : "删除接入器失败。");
       }
-      setProviders((current) => current.filter((provider) => provider.id !== providerId));
-      setMessage("接入器已删除。");
     });
   }
 
@@ -87,13 +107,17 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
     setError(null);
     setMessage(null);
     startTransition(async () => {
-      const response = await fetch(`/api/providers/${providerId}/test`, { method: "POST" });
-      const payload = (await response.json()) as { message?: string; error?: string };
-      if (!response.ok) {
-        setError(payload.error ?? payload.message ?? "测试失败。");
-        return;
+      try {
+        const response = await secureFetch(`/api/providers/${providerId}/test`, { method: "POST" });
+        const payload = (await response.json()) as { message?: string; error?: string };
+        if (!response.ok) {
+          setError(payload.error ?? payload.message ?? "测试失败。");
+          return;
+        }
+        setMessage(payload.message ?? "接入器测试通过。");
+      } catch (testError) {
+        setError(testError instanceof Error ? testError.message : "测试失败。");
       }
-      setMessage(payload.message ?? "接入器测试通过。");
     });
   }
 
@@ -159,8 +183,8 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
             />
           </label>
 
-          {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]">{error}</p> : null}
-          {message ? <p className="rounded-md bg-[var(--jade-soft)] p-3 text-sm text-[var(--jade)]">{message}</p> : null}
+          {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]" role="alert">{error}</p> : null}
+          {message ? <p className="rounded-md bg-[var(--jade-soft)] p-3 text-sm text-[var(--jade)]" role="status">{message}</p> : null}
 
           <Button className="w-full" disabled={isPending} onClick={submit} size="lg">
             <Plus className="h-4 w-4" />
@@ -233,8 +257,13 @@ export function ProviderSettings({ initialProviders }: { initialProviders: Provi
                     </Button>
                     <Button disabled={isPending} onClick={() => deleteProvider(provider.id)} size="sm" variant="danger">
                       <Trash2 className="h-3.5 w-3.5" />
-                      删除
+                      {confirmDeleteId === provider.id ? "确认删除" : "删除"}
                     </Button>
+                    {confirmDeleteId === provider.id ? (
+                      <Button disabled={isPending} onClick={() => setConfirmDeleteId(null)} size="sm" variant="ghost">
+                        取消
+                      </Button>
+                    ) : null}
                   </div>
                 </article>
               ))}

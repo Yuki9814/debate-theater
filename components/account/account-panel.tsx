@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Download, LogOut, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
+import { secureFetch } from "@/lib/security/secure-fetch";
 
 export function AccountPanel({
   user,
@@ -15,27 +16,42 @@ export function AccountPanel({
 }) {
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<"logout" | "delete" | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function logout() {
+    if (confirming !== "logout") {
+      setConfirming("logout");
+      return;
+    }
     startTransition(async () => {
-      await fetch("/api/auth/session", { method: "DELETE" });
+      await secureFetch("/api/auth/session", { method: "DELETE" });
       router.push("/");
       router.refresh();
     });
   }
 
   function deleteAccount() {
+    if (confirming !== "delete") {
+      setConfirming("delete");
+      return;
+    }
     startTransition(async () => {
-      await fetch("/api/auth/session?account=delete", { method: "DELETE" });
+      await secureFetch("/api/auth/session?account=delete", { method: "DELETE" });
       router.push("/");
       router.refresh();
     });
   }
 
   async function exportAccount() {
+    setError(null);
     const response = await fetch("/api/account/export");
     const payload = await response.text();
+    if (!response.ok) {
+      setError(payload || "账号数据导出失败。");
+      return;
+    }
     const blob = new Blob([payload], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -62,14 +78,21 @@ export function AccountPanel({
         </Button>
         <Button disabled={!authenticated || isPending} onClick={logout} size="md" variant="secondary">
           <LogOut className="h-4 w-4" />
-          退出登录
+          {confirming === "logout" ? "确认退出" : "退出登录"}
         </Button>
         <Button disabled={!authenticated || isPending} onClick={deleteAccount} size="md" variant="danger">
           <Trash2 className="h-4 w-4" />
-          删除账号
+          {confirming === "delete" ? "确认删除账号" : "删除账号"}
         </Button>
       </div>
-      {message ? <p className="mt-4 rounded-md bg-[var(--jade-soft)] p-3 text-sm text-[var(--jade)]">{message}</p> : null}
+      {confirming ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md bg-[var(--brass-soft)] p-3 text-sm text-[var(--brass)]" role="status">
+          <span>{confirming === "delete" ? "删除会清空账号、卷宗、密钥舱与同行者记录。" : "再次点击会清除当前登录会话。"}</span>
+          <Button onClick={() => setConfirming(null)} size="sm" variant="ghost">取消</Button>
+        </div>
+      ) : null}
+      {error ? <p className="mt-4 rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]" role="alert">{error}</p> : null}
+      {message ? <p className="mt-4 rounded-md bg-[var(--jade-soft)] p-3 text-sm text-[var(--jade)]" role="status">{message}</p> : null}
     </Panel>
   );
 }

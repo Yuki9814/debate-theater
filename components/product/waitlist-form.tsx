@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { secureFetch } from "@/lib/security/secure-fetch";
 
 export function WaitlistForm({ moduleId }: { moduleId: string }) {
   const [email, setEmail] = useState("");
@@ -16,21 +17,25 @@ export function WaitlistForm({ moduleId }: { moduleId: string }) {
     setMessage(null);
 
     startTransition(async () => {
-      const response = await fetch("/api/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ moduleId, email, useCase }),
-      });
-      const payload = (await response.json()) as { waitlist?: { id: string }; error?: string };
+      try {
+        const response = await secureFetch("/api/waitlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ moduleId, email, useCase }),
+        });
+        const payload = (await response.json()) as { waitlist?: { id: string }; error?: string };
 
-      if (!response.ok || !payload.waitlist) {
-        setError(payload.error ?? "提交失败，请稍后再试。");
-        return;
+        if (!response.ok || !payload.waitlist) {
+          setError(payload.error ?? "提交失败，请稍后再试。");
+          return;
+        }
+
+        setMessage("已加入等待名单。模块开放时会优先通知。");
+        setEmail("");
+        setUseCase("");
+      } catch (submitError) {
+        setError(submitError instanceof Error ? submitError.message : "提交失败，请稍后再试。");
       }
-
-      setMessage("已加入等待名单。模块开放时会优先通知。");
-      setEmail("");
-      setUseCase("");
     });
   }
 
@@ -56,9 +61,9 @@ export function WaitlistForm({ moduleId }: { moduleId: string }) {
         />
       </label>
 
-      {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]">{error}</p> : null}
+      {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]" role="alert">{error}</p> : null}
       {message ? (
-        <p className="flex items-center gap-2 rounded-md bg-[var(--jade-soft)] p-3 text-sm text-[var(--jade)]">
+        <p className="flex items-center gap-2 rounded-md bg-[var(--jade-soft)] p-3 text-sm text-[var(--jade)]" role="status">
           <CheckCircle2 className="h-4 w-4" />
           {message}
         </p>

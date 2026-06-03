@@ -1,7 +1,8 @@
 import { createProvider, decryptApiKey } from "@/lib/ai";
-import { getCurrentUser } from "@/lib/auth/session";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/prisma";
 import { errorResponse } from "@/lib/errors";
+import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 
 type RouteContext = {
@@ -22,15 +23,16 @@ function readCredential(provider: Record<string, unknown>) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
-  const limit = consumeRateLimit("providers-test", request, {
+  const limit = await consumeRateLimit("providers-test", request, {
     limit: 15,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
+    requireMutationSecurity(request);
     const { providerId } = await context.params;
-    const user = await getCurrentUser();
+    const user = await requireCurrentUser();
     const provider = await prisma.apiProvider.findUnique({ where: { id: providerId, userId: user.id } });
     if (!provider) {
       return Response.json({ error: "未找到供应商配置。" }, { status: 404 });

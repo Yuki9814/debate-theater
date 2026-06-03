@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { errorResponse } from "@/lib/errors";
 import { roadmapModules } from "@/lib/product/conversion";
+import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 
 const moduleIds = roadmapModules.map((module) => module.id) as [string, ...string[]];
@@ -13,13 +14,14 @@ const waitlistSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const limit = consumeRateLimit("waitlist-create", request, {
+  const limit = await consumeRateLimit("waitlist-create", request, {
     limit: 10,
     windowMs: 60_000,
   });
   if (!limit.allowed) return rateLimitResponse(limit);
 
   try {
+    requireMutationSecurity(request);
     const body = waitlistSchema.parse(await request.json());
     const lead = await prisma.waitlistLead.create({
       data: body,

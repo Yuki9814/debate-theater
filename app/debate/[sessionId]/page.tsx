@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { DebateRoom } from "@/components/debate/debate-room";
 import { AppShell } from "@/components/layout/app-shell";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -13,6 +13,7 @@ export default async function DebateSessionPage({
 }) {
   const { sessionId } = await params;
   const user = await getCurrentUser();
+  if (!user) redirect("/login");
   const session = await getSession(sessionId, user.id);
 
   if (!session) notFound();

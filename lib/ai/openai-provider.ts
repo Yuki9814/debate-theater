@@ -148,11 +148,10 @@ export class OpenAIProvider implements AIProvider {
         });
 
         if (!response.ok) {
-          const detail = await response.text();
+          await response.body?.cancel();
           console.error(`Provider request failed (attempt ${attempt + 1}/${maxRetries + 1})`, {
             provider: this.id,
             status: response.status,
-            detail: detail.slice(0, 500),
           });
 
           if (response.status === 401 || response.status === 403) {

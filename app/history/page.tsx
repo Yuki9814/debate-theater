@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Archive, Award, Calendar, ChevronRight, Layers } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
@@ -59,6 +60,7 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
   const statusFilter = firstParam(params.status)?.trim() ?? "";
   const dateFilter = firstParam(params.date)?.trim() ?? "";
   const user = await getCurrentUser();
+  if (!user) redirect("/login");
   const rawSessions = await prisma.debateSession.findMany({
     where: { userId: user.id },
     orderBy: { updatedAt: "desc" },
