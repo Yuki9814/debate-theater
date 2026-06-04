@@ -104,6 +104,30 @@ describe("evaluateEndState", () => {
     assert.deepEqual(result, { status: "ended", winner: "B" });
   });
 
+  it("does not accept judgeResult.should_end below the confidence threshold", () => {
+    const result = evaluateEndState({
+      rounds: [round(1, 70, 80)],
+      judgeResult: { ...judgeResult, should_end: true, possible_loser: "A", confidence: 0.6 },
+      lowScoreThreshold: 55,
+      consecutiveLowLimit: 3,
+      judgeConfidence: 0.75,
+      maxRounds: 30,
+    });
+    assert.deepEqual(result, { status: "running", winner: null });
+  });
+
+  it("does not invent a winner when judgeResult.should_end omits a loser", () => {
+    const result = evaluateEndState({
+      rounds: [round(1, 70, 80)],
+      judgeResult: { ...judgeResult, should_end: true, possible_loser: null, confidence: 0.95 },
+      lowScoreThreshold: 55,
+      consecutiveLowLimit: 3,
+      judgeConfidence: 0.75,
+      maxRounds: 30,
+    });
+    assert.deepEqual(result, { status: "running", winner: null });
+  });
+
   it("keeps running when no end conditions are met", () => {
     const result = evaluateEndState({
       rounds: [round(1, 80, 75), round(2, 78, 82)],

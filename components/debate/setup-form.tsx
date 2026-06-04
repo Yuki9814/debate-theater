@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, BookOpen, Database, Network, Scale, Search, Sparkles, Users } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { AlertCircle, ArrowRight, BookOpen, CheckCircle2, Database, Network, Scale, Search, Sparkles, Users } from "lucide-react";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
 import { defaultDebateSetup, providerOptions, type DebateMode, type DebateSetupInput } from "@/lib/debate/types";
@@ -33,6 +33,52 @@ type SourceCardPreview = {
   sourceName: string;
   summary: string;
   reliabilityNote: string;
+};
+
+type SourceMode = "live" | "fallback";
+
+type ProviderKey = "providerA" | "providerB" | "providerJudge";
+type ModelKey = "modelA" | "modelB" | "modelJudge";
+type SeatRole = "A" | "B" | "Judge";
+
+type ProviderChoice = {
+  id: string;
+  label: string;
+  model: string;
+  kind: "built-in" | "saved";
+};
+
+type SeatConfig = {
+  label: string;
+  shortLabel: string;
+  providerKey: ProviderKey;
+  modelKey: ModelKey;
+  role: SeatRole;
+  tone: BadgeTone;
+};
+
+const seatConfigs: SeatConfig[] = [
+  { label: "甲方席接入器", shortLabel: "甲方", providerKey: "providerA", modelKey: "modelA", role: "A", tone: "rose" },
+  { label: "乙方席接入器", shortLabel: "乙方", providerKey: "providerB", modelKey: "modelB", role: "B", tone: "cyan" },
+  { label: "裁判席接入器", shortLabel: "裁判", providerKey: "providerJudge", modelKey: "modelJudge", role: "Judge", tone: "amber" },
+];
+
+const builtInSeatModels: Record<string, Record<SeatRole, string>> = {
+  mock: {
+    A: "mock-theater-a",
+    B: "mock-theater-b",
+    Judge: "mock-judge",
+  },
+  openai: {
+    A: "gpt-4.1-mini",
+    B: "gpt-4.1-mini",
+    Judge: "gpt-4.1-mini",
+  },
+  "custom-openai": {
+    A: "gpt-4.1-mini",
+    B: "gpt-4.1-mini",
+    Judge: "gpt-4.1-mini",
+  },
 };
 
 const PRESET_TOPICS = [
@@ -82,6 +128,32 @@ function modeTone(mode: DebateMode) {
   return "emerald" as const;
 }
 
+function modeLabel(mode: DebateMode | string) {
+  const map: Record<string, string> = {
+    free: "自由辩论",
+    persona: "人格辩论",
+    research: "热点联网",
+    companion: "同行者",
+  };
+  return map[mode] ?? mode;
+}
+
+function outputModeLabel(mode: DebateSetupInput["outputMode"]) {
+  const map: Record<string, string> = {
+    theater: "庭审摘录",
+    sentence: "逐句拆解",
+    full: "原文整段",
+  };
+  return map[mode] ?? mode;
+}
+
+function personaStance(persona: PersonaView | undefined, side: "A" | "B") {
+  if (!persona) return undefined;
+  return side === "A"
+    ? `${persona.name}以其思想与经历支持本方主张`
+    : `${persona.name}以其思想与经历反驳本方主张`;
+}
+
 export function SetupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -92,6 +164,7 @@ export function SetupForm() {
   const [providers, setProviders] = useState<ProviderView[]>([]);
   const [personas, setPersonas] = useState<PersonaView[]>(personaPresets);
   const [sourcePreview, setSourcePreview] = useState<SourceCardPreview[]>([]);
+  const [sourceMode, setSourceMode] = useState<SourceMode | null>(null);
   const [form, setForm] = useState<DebateSetupInput>({
     ...defaultDebateSetup,
     topic: scenario?.topic ?? queryTopic ?? "人工智能未来是否应该被赋予法律主体地位与道德权利义务？",
@@ -122,29 +195,79 @@ export function SetupForm() {
       .catch(() => setError("读取人格库失败，请稍后刷新。"));
   }, []);
 
-  const providerChoices = useMemo(
+  const providerChoices = useMemo<ProviderChoice[]>(
     () => [
       ...providerOptions.map((provider) => ({
         id: provider.id,
         label: provider.name,
-        model: provider.id === "mock" ? "mock-theater" : "gpt-4.1-mini",
+        model: builtInSeatModels[provider.id]?.A ?? "gpt-4.1-mini",
+        kind: "built-in" as const,
       })),
       ...providers.map((provider) => ({
         id: provider.id,
         label: `${provider.providerName} · ${provider.defaultModel ?? "默认模型"}`,
         model: provider.defaultModel ?? "",
+        kind: "saved" as const,
       })),
     ],
     [providers],
+  );
+  const providerChoicesById = useMemo(
+    () => new Map(providerChoices.map((provider) => [provider.id, provider])),
+    [providerChoices],
   );
 
   const personaA = personas.find((persona) => persona.id === form.personaAId);
   const personaB = personas.find((persona) => persona.id === form.personaBId);
   const recommendedTopics =
     personaA && personaB ? recommendPersonaTopics(personaA.name, personaB.name) : [];
+  const topicLength = form.topic.trim().length;
+  const pauseEstimate = Math.floor(form.maxRounds / form.pauseEveryRounds);
+  const blockingIssues = [
+    topicLength < 4 ? "辩题至少需要 4 个字。" : null,
+    form.stanceMode === "custom" && (!form.sideA?.trim() || !form.sideB?.trim())
+      ? "手写立场需要补齐甲乙两席主张。"
+      : null,
+    form.mode === "persona" && (!form.personaAId || !form.personaBId)
+      ? "人格辩论需要选择甲乙两位身份。"
+      : null,
+  ].filter(Boolean);
+  const advisoryNotes = [
+    form.mode === "research" && sourcePreview.length === 0 ? "热点联网建议先预览资料包，便于确认来源口径。" : null,
+    form.mode === "research" && sourceMode === "fallback" ? "当前资料包是本地占位入口，还不是实时联网抓取结果。" : null,
+    form.pauseEveryRounds >= form.maxRounds ? "断点频率不小于最大回合，本场可能不会自动停顿复核。" : null,
+    form.judgeConfidence < 0.65 ? "裁判置信度较低，较容易提前触发结案。" : null,
+  ].filter(Boolean);
+  const readinessTone: BadgeTone = blockingIssues.length ? "rose" : advisoryNotes.length ? "amber" : "emerald";
 
   function update<K extends keyof DebateSetupInput>(key: K, value: DebateSetupInput[K]) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function defaultModelFor(providerId: string, role: SeatRole) {
+    return builtInSeatModels[providerId]?.[role] ?? providerChoicesById.get(providerId)?.model ?? "";
+  }
+
+  function selectProvider(providerKey: ProviderKey, modelKey: ModelKey, role: SeatRole, providerId: string) {
+    setForm((current) => ({
+      ...current,
+      [providerKey]: providerId,
+      [modelKey]: defaultModelFor(providerId, role),
+    }));
+  }
+
+  function selectPersona(key: "personaAId" | "personaBId", value: string) {
+    const selected = personas.find((persona) => persona.id === value);
+    setForm((current) => ({
+      ...current,
+      [key]: value,
+      ...(current.mode === "persona" && key === "personaAId"
+        ? { sideA: personaStance(selected, "A") ?? current.sideA }
+        : {}),
+      ...(current.mode === "persona" && key === "personaBId"
+        ? { sideB: personaStance(selected, "B") ?? current.sideB }
+        : {}),
+    }));
   }
 
   function setMode(mode: DebateMode) {
@@ -152,8 +275,8 @@ export function SetupForm() {
       ...current,
       mode,
       stanceMode: mode === "persona" ? "custom" : current.stanceMode,
-      sideA: mode === "persona" && personaA ? `${personaA.name}以其思想与经历支持本方主张` : current.sideA,
-      sideB: mode === "persona" && personaB ? `${personaB.name}以其思想与经历反驳本方主张` : current.sideB,
+      sideA: mode === "persona" ? personaStance(personaA, "A") ?? current.sideA : current.sideA,
+      sideB: mode === "persona" ? personaStance(personaB, "B") ?? current.sideB : current.sideB,
       researchQuery: mode === "research" ? current.topic : current.researchQuery,
     }));
   }
@@ -170,18 +293,20 @@ export function SetupForm() {
 
   async function previewSources() {
     setError(null);
+    setSourceMode(null);
     try {
       const response = await secureFetch("/api/research/source-cards", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic: form.researchQuery || form.topic }),
       });
-      const payload = (await response.json()) as { sourceCards?: SourceCardPreview[]; error?: string };
+      const payload = (await response.json()) as { sourceCards?: SourceCardPreview[]; sourceMode?: SourceMode; error?: string };
       if (!response.ok) {
         setError(payload.error ?? "资料包生成失败。");
         return;
       }
       setSourcePreview(payload.sourceCards ?? []);
+      setSourceMode(payload.sourceMode ?? null);
     } catch (sourceError) {
       setError(sourceError instanceof Error ? sourceError.message : "资料包生成失败。");
     }
@@ -298,7 +423,7 @@ export function SetupForm() {
                   <span className="field-label">{String(label)}</span>
                   <select
                     className="ink-select"
-                    onChange={(event) => update(key as "personaAId" | "personaBId", event.target.value)}
+                    onChange={(event) => selectPersona(key as "personaAId" | "personaBId", event.target.value)}
                     value={String(form[key as "personaAId" | "personaBId"] ?? "")}
                   >
                     {personas.map((persona) => (
@@ -378,6 +503,16 @@ export function SetupForm() {
                   预览资料包
                 </Button>
               </div>
+              {sourceMode ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs leading-5 text-[var(--muted)]">
+                  <Badge tone={sourceMode === "live" ? "emerald" : "amber"}>
+                    {sourceMode === "live" ? "实时来源" : "本地占位"}
+                  </Badge>
+                  {sourceMode === "live"
+                    ? "资料包来自搜索服务返回结果，仍需交叉验证。"
+                    : "当前未配置实时搜索凭据；这些链接只用于演示和人工审查入口。"}
+                </div>
+              ) : null}
               {sourcePreview.length > 0 ? (
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   {sourcePreview.slice(0, 4).map((card) => (
@@ -401,18 +536,14 @@ export function SetupForm() {
             </summary>
             <div className="space-y-5 border-t border-[var(--line)] p-4">
               <div className="grid gap-4 md:grid-cols-3">
-                {[
-                  ["providerA", "甲方席接入器", "modelA"],
-                  ["providerB", "乙方席接入器", "modelB"],
-                  ["providerJudge", "裁判席接入器", "modelJudge"],
-                ].map(([providerKey, label, modelKey]) => (
-                  <div className="rounded-md border border-[var(--line)] bg-white/35 p-3" key={providerKey}>
+                {seatConfigs.map((seat) => (
+                  <div className="rounded-md border border-[var(--line)] bg-white/35 p-3" key={seat.providerKey}>
                     <label className="space-y-2 block">
-                      <span className="field-label">{label}</span>
+                      <span className="field-label">{seat.label}</span>
                       <select
                         className="ink-select"
-                        onChange={(event) => update(providerKey as "providerA" | "providerB" | "providerJudge", event.target.value)}
-                        value={String(form[providerKey as "providerA" | "providerB" | "providerJudge"])}
+                        onChange={(event) => selectProvider(seat.providerKey, seat.modelKey, seat.role, event.target.value)}
+                        value={String(form[seat.providerKey])}
                       >
                         {providerChoices.map((provider) => (
                           <option key={provider.id} value={provider.id}>
@@ -425,8 +556,8 @@ export function SetupForm() {
                       <span className="field-label">模型标识</span>
                       <input
                         className="ink-input"
-                        onChange={(event) => update(modelKey as "modelA" | "modelB" | "modelJudge", event.target.value)}
-                        value={String(form[modelKey as "modelA" | "modelB" | "modelJudge"] ?? "")}
+                        onChange={(event) => update(seat.modelKey, event.target.value)}
+                        value={String(form[seat.modelKey] ?? "")}
                       />
                     </label>
                   </div>
@@ -452,7 +583,7 @@ export function SetupForm() {
 
           {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]" role="alert">{error}</p> : null}
 
-          <Button className="w-full" disabled={isPending} onClick={submit} size="lg">
+          <Button className="w-full" disabled={isPending || blockingIssues.length > 0} onClick={submit} size="lg">
             {isPending ? "正在立卷..." : "立卷并开庭"}
             <ArrowRight className="h-4 w-4" />
           </Button>
@@ -460,6 +591,82 @@ export function SetupForm() {
       </Panel>
 
       <div className="space-y-4">
+        <Panel className="p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--line)] pb-4">
+            <div>
+              <Badge tone={readinessTone}>开庭复核</Badge>
+              <h2 className="mt-3 font-serif text-xl font-bold text-[var(--ink)]">提交前看这一眼</h2>
+            </div>
+            {blockingIssues.length === 0 ? (
+              <CheckCircle2 className="h-5 w-5 text-[var(--jade)]" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-[var(--rose)]" />
+            )}
+          </div>
+
+          <dl className="mt-4 grid gap-3 text-sm">
+            {[
+              ["模式", modeLabel(form.mode)],
+              ["辩题字数", `${topicLength} 字`],
+              ["轮数规则", `最多 ${form.maxRounds} 轮，约 ${pauseEstimate} 次人工断点`],
+              ["裁判规则", `低分线 ${form.lowScoreThreshold}，连续 ${form.consecutiveLowLimit} 次，置信 ${Math.round(form.judgeConfidence * 100)}%`],
+              ["呈现方式", outputModeLabel(form.outputMode)],
+            ].map(([label, value]) => (
+              <div className="flex justify-between gap-4 border-b border-[var(--line)] pb-2 last:border-b-0 last:pb-0" key={label}>
+                <dt className="shrink-0 text-xs font-semibold text-[var(--muted)]">{label}</dt>
+                <dd className="text-right text-xs leading-5 text-[var(--ink-soft)]">{value}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <div className="mt-4 space-y-2">
+            {blockingIssues.map((issue) => (
+              <p className="flex gap-2 rounded-md bg-[var(--rose-soft)] p-2 text-xs leading-5 text-[var(--rose)]" key={issue}>
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                {issue}
+              </p>
+            ))}
+            {blockingIssues.length === 0 ? (
+              <p className="flex gap-2 rounded-md bg-[var(--jade-soft)] p-2 text-xs leading-5 text-[var(--jade)]">
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                基础配置已齐，可以立卷。
+              </p>
+            ) : null}
+            {advisoryNotes.map((note) => (
+              <p className="flex gap-2 rounded-md bg-[var(--brass-soft)] p-2 text-xs leading-5 text-[var(--brass)]" key={note}>
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                {note}
+              </p>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel className="p-5">
+          <div className="mb-4 flex items-center justify-between border-b border-[var(--line)] pb-3">
+            <h2 className="font-serif text-lg font-bold text-[var(--ink)]">席位与模型</h2>
+            <Badge tone="cyan">{providerChoices.length} 个接入器</Badge>
+          </div>
+          <div className="space-y-3">
+            {seatConfigs.map((seat) => {
+              const provider = providerChoicesById.get(String(form[seat.providerKey]));
+              return (
+                <div className="border-b border-[var(--line)] pb-3 last:border-b-0 last:pb-0" key={seat.providerKey}>
+                  <div className="flex items-center justify-between gap-3">
+                    <Badge tone={seat.tone}>{seat.shortLabel}</Badge>
+                    <span className="text-right text-xs font-semibold text-[var(--muted)]">
+                      {provider?.kind === "saved" ? "密钥舱" : "内置"}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm font-semibold leading-6 text-[var(--ink)]">{provider?.label ?? "未知接入器"}</p>
+                  <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
+                    {String(form[seat.modelKey] || "使用服务端默认模型")}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </Panel>
+
         {[
           ["人格一致性", "裁判会对时代错位、口吻漂移、现代全知视角扣分。"],
           ["联网事实席", "热点模式会先生成共享资料包，双方不得伪造来源。"],

@@ -10,6 +10,8 @@ export type SourceCard = {
   citationCount?: number;
 };
 
+export type SourceCollectionMode = "live" | "fallback";
+
 const tavilyResultSchema = z.object({
   title: z.string().optional(),
   url: z.string().url().optional(),
@@ -120,6 +122,10 @@ export async function collectNeutralSourceCards(topic: string): Promise<SourceCa
   if (!payload.success) return fallbackCards(topic);
   const cards = normalizeSourceCards(topic, payload.data.results ?? []);
   return cards.length > 0 ? cards : fallbackCards(topic);
+}
+
+export function sourceCollectionMode(cards: SourceCard[]): SourceCollectionMode {
+  return cards.some((card) => card.sourceName === "search-fallback") ? "fallback" : "live";
 }
 
 export const hotTopicResearchStub = {

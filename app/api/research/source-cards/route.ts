@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCurrentUser } from "@/lib/auth/session";
-import { collectNeutralSourceCards } from "@/lib/research/source-cards";
+import { collectNeutralSourceCards, sourceCollectionMode } from "@/lib/research/source-cards";
 import { errorResponse } from "@/lib/errors";
 import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     await requireCurrentUser();
     const body = sourceCardSchema.parse(await request.json());
     const sourceCards = await collectNeutralSourceCards(body.topic);
-    return Response.json({ sourceCards });
+    return Response.json({ sourceCards, sourceMode: sourceCollectionMode(sourceCards) });
   } catch (error) {
     return errorResponse(error, "生成资料包失败。");
   }

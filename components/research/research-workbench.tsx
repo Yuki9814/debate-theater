@@ -17,14 +17,18 @@ type SourceCard = {
   reliabilityNote: string;
 };
 
+type SourceMode = "live" | "fallback";
+
 export function ResearchWorkbench() {
   const [topic, setTopic] = useState("人工智能生成内容是否应该强制标识来源与生成方式？");
   const [cards, setCards] = useState<SourceCard[]>([]);
+  const [sourceMode, setSourceMode] = useState<SourceMode | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function collect() {
     setError(null);
+    setSourceMode(null);
     startTransition(async () => {
       try {
         const response = await secureFetch("/api/research/source-cards", {
@@ -32,12 +36,13 @@ export function ResearchWorkbench() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ topic }),
         });
-        const payload = (await response.json()) as { sourceCards?: SourceCard[]; error?: string };
+        const payload = (await response.json()) as { sourceCards?: SourceCard[]; sourceMode?: SourceMode; error?: string };
         if (!response.ok) {
           setError(payload.error ?? "资料包生成失败。");
           return;
         }
         setCards(payload.sourceCards ?? []);
+        setSourceMode(payload.sourceMode ?? null);
       } catch (collectError) {
         setError(collectError instanceof Error ? collectError.message : "资料包生成失败。");
       }
@@ -72,6 +77,16 @@ export function ResearchWorkbench() {
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
+        {sourceMode ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-md border border-[var(--line)] bg-white/35 p-3 text-xs leading-5 text-[var(--muted)]">
+            <Badge tone={sourceMode === "live" ? "emerald" : "amber"}>
+              {sourceMode === "live" ? "实时搜索结果" : "本地占位资料"}
+            </Badge>
+            {sourceMode === "live"
+              ? "资料包来自搜索服务返回结果，裁判仍会要求交叉验证。"
+              : "当前未配置实时搜索凭据；结果只是可点击审查入口，不能当作已抓取正文。"}
+          </div>
+        ) : null}
         {error ? <p className="mt-4 rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]" role="alert">{error}</p> : null}
       </Panel>
 

@@ -277,16 +277,21 @@ export function evaluateEndState(params: {
   const confidenceMet = params.judgeResult.confidence >= params.judgeConfidence;
   const aCanLose = aLow && bAverage - aAverage >= 10 && confidenceMet;
   const bCanLose = bLow && aAverage - bAverage >= 10 && confidenceMet;
+  const judgeDeclaredLoser = params.judgeResult.possible_loser;
+  const judgeCanEnd =
+    params.judgeResult.should_end &&
+    confidenceMet &&
+    (judgeDeclaredLoser === "A" || judgeDeclaredLoser === "B");
 
   if (rounds.length >= params.maxRounds) {
     if (aAverage === bAverage) return { status: "ended", winner: "Draw" };
     return { status: "ended", winner: aAverage > bAverage ? "A" : "B" };
   }
 
-  if (params.judgeResult.should_end || aCanLose || bCanLose) {
+  if (judgeCanEnd || aCanLose || bCanLose) {
     return {
       status: "ended",
-      winner: aCanLose ? "B" : bCanLose ? "A" : params.judgeResult.possible_loser === "A" ? "B" : "A",
+      winner: aCanLose ? "B" : bCanLose ? "A" : judgeDeclaredLoser === "A" ? "B" : "A",
     };
   }
 
