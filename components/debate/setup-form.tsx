@@ -353,20 +353,34 @@ export function SetupForm() {
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.16fr_0.84fr]">
-      <Panel className="docket-paper p-5 sm:p-7">
-        <div className="border-b border-[var(--line)] pb-6">
-          <div className="page-kicker">
-            <Sparkles className="h-4 w-4 text-[var(--cinnabar)]" />
-            多模式开庭
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <Panel className="docket-paper overflow-hidden p-0">
+        <div className="border-b border-[var(--line)] p-5 sm:p-7">
+          <div className="flex flex-wrap items-start justify-between gap-5">
+            <div>
+              <div className="page-kicker">
+                <Sparkles className="h-4 w-4 text-[var(--cinnabar)]" />
+                多模式开庭
+              </div>
+              <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)]">立卷并开庭</h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
+                四步完成开庭：选模式、定议题、设规则、核对席位。mock 模式无需真实密钥。
+              </p>
+            </div>
+            <div className="grid min-w-[220px] gap-2 text-xs text-[var(--muted)]">
+              {["模式", "议题", "规则", "复核"].map((step, index) => (
+                <div className="flex items-center gap-2" key={step}>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-md border border-[var(--line)] bg-white/45 font-serif font-bold text-[var(--ink)]">
+                    {index + 1}
+                  </span>
+                  <span className="font-semibold">{step}</span>
+                </div>
+              ))}
+            </div>
           </div>
-          <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)]">立卷并开庭</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
-            自由辩论、人格辩论与热点联网共用同一辩论引擎，甲乙席和裁判席可分别选择密钥舱接入器。
-          </p>
         </div>
 
-        <div className="mt-7 space-y-6">
+        <div className="space-y-7 p-5 sm:p-7">
           <section className="grid gap-3 md:grid-cols-3">
             {[
               { id: "free" as const, label: "自由辩论", icon: Scale, body: "自动分正反或手写双方立场。" },
@@ -393,15 +407,18 @@ export function SetupForm() {
             })}
           </section>
 
-          <section className="space-y-3">
-            <span className="field-label justify-start gap-2">
-              <BookOpen className="h-3.5 w-3.5 text-[var(--cinnabar)]" />
-              高频开题
-            </span>
-            <div className="grid gap-2 md:grid-cols-3">
+          <section className="rounded-md border border-[var(--line)] bg-white/35 p-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <span className="field-label justify-start gap-2">
+                <BookOpen className="h-3.5 w-3.5 text-[var(--cinnabar)]" />
+                高频开题
+              </span>
+              <Badge tone={modeTone(form.mode as DebateMode)}>{modeLabel(form.mode)}</Badge>
+            </div>
+            <div className="grid gap-2 lg:grid-cols-3">
               {PRESET_TOPICS.map((preset, index) => (
                 <button
-                  className="rounded-md border border-[var(--line)] bg-white/35 p-3 text-left text-sm leading-6 text-[var(--ink-soft)] transition hover:border-[var(--cinnabar)] hover:bg-white/70"
+                  className="rounded-md border border-[var(--line)] bg-[var(--bg-glass)] p-3 text-left text-sm leading-6 text-[var(--ink-soft)] transition hover:border-[var(--cinnabar)] hover:bg-white/70"
                   key={preset.topic}
                   onClick={() => applyPreset(preset)}
                   type="button"
@@ -452,10 +469,12 @@ export function SetupForm() {
             </section>
           ) : null}
 
-          <label className="space-y-2 block">
-            <span className="field-label">议题正文</span>
-            <textarea className="ink-textarea min-h-[132px] text-base" onChange={(event) => update("topic", event.target.value)} value={form.topic} />
-          </label>
+          <section className="rounded-md border border-[var(--line)] bg-white/35 p-4">
+            <label className="space-y-2 block">
+              <span className="field-label">议题正文</span>
+              <textarea className="ink-textarea min-h-[148px] text-base" onChange={(event) => update("topic", event.target.value)} value={form.topic} />
+            </label>
+          </section>
 
           {form.mode !== "persona" ? (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -473,10 +492,16 @@ export function SetupForm() {
             </div>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <NumberField label="最大回合" max={200} min={1} onChange={(value) => update("maxRounds", value)} value={form.maxRounds} />
-            <NumberField label="断点频率" max={50} min={1} onChange={(value) => update("pauseEveryRounds", value)} value={form.pauseEveryRounds} />
-          </div>
+          <section className="rounded-md border border-[var(--line)] bg-white/35 p-4">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <span className="field-label">庭审节奏</span>
+              <span className="text-xs font-semibold text-[var(--muted)]">约 {pauseEstimate} 次人工断点</span>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <NumberField label="最大回合" max={200} min={1} onChange={(value) => update("maxRounds", value)} value={form.maxRounds} />
+              <NumberField label="断点频率" max={50} min={1} onChange={(value) => update("pauseEveryRounds", value)} value={form.pauseEveryRounds} />
+            </div>
+          </section>
 
           {(form.stanceMode === "custom" || form.mode === "persona") && (
             <div className="grid gap-4 sm:grid-cols-2">
@@ -590,7 +615,7 @@ export function SetupForm() {
         </div>
       </Panel>
 
-      <div className="space-y-4">
+      <div className="space-y-4 xl:sticky xl:top-8">
         <Panel className="p-5">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--line)] pb-4">
             <div>

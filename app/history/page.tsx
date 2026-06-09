@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Archive, Award, Calendar, ChevronRight, Layers } from "lucide-react";
+import { Archive, Award, Calendar, ChevronRight, Layers, Search, Sparkles } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -77,6 +77,9 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
       const matchesDate = !dateFilter || session.updatedAt.slice(0, 10) === dateFilter;
       return matchesQuery && matchesStatus && matchesDate;
     });
+  const activeFilterCount = [query, statusFilter, dateFilter].filter(Boolean).length;
+  const closedCount = sessions.filter((session) => session.status === "ended" || session.status === "stopped").length;
+  const totalRounds = sessions.reduce((sum, session) => sum + session.rounds.length, 0);
 
   return (
     <AppShell>
@@ -93,6 +96,16 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
         </header>
 
         <Panel className="p-4 sm:p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] pb-4">
+            <div className="flex items-center gap-2">
+              <Search className="h-4 w-4 text-[var(--cinnabar)]" />
+              <h2 className="font-serif text-lg font-bold text-[var(--ink)]">筛选卷宗</h2>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Badge tone="cyan">{sessions.length} 条结果</Badge>
+              <Badge tone={activeFilterCount ? "amber" : "neutral"}>{activeFilterCount} 个条件</Badge>
+            </div>
+          </div>
           <form className="grid gap-3 md:grid-cols-[1fr_180px_180px_auto]" action="/history">
             <label className="space-y-2">
               <span className="field-label">关键词</span>
@@ -125,45 +138,67 @@ export default async function HistoryPage({ searchParams }: HistoryPageProps) {
           </form>
         </Panel>
 
+        <section className="grid gap-3 md:grid-cols-3">
+          {[
+            ["匹配卷宗", sessions.length],
+            ["结案卷宗", closedCount],
+            ["回合总数", totalRounds],
+          ].map(([label, value]) => (
+            <div className="rounded-md border border-[var(--line)] bg-[var(--inline-surface)] p-4" key={label}>
+              <div className="text-xs font-semibold text-[var(--muted)]">{label}</div>
+              <div className="mt-2 font-serif text-3xl font-black text-[var(--ink)]">{value}</div>
+            </div>
+          ))}
+        </section>
+
         {sessions.length === 0 ? (
           <Panel className="p-12 text-center">
             <Archive className="mx-auto h-10 w-10 text-[var(--muted-light)]" />
             <p className="mt-4 text-sm text-[var(--muted)]">没有匹配的庭审卷宗。</p>
+            <Link className={buttonVariants({ variant: "primary", size: "md", className: "mt-5" })} href="/debate/setup">
+              <Sparkles className="h-4 w-4" />
+              新开一场
+            </Link>
           </Panel>
         ) : (
-          <div className="space-y-3">
+          <div className="grid gap-3">
             {sessions.map((session) => (
               <Link href={`/debate/${session.id}`} key={session.id} className="block">
-                <Panel className="group p-5 transition hover:border-[var(--cinnabar)] hover:bg-white/70">
-                  <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-center">
+                <Panel className="group p-0 transition hover:border-[var(--cinnabar)] hover:bg-white/70">
+                  <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_260px]">
                     <div className="min-w-0">
-                      <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
-                        <span className="inline-flex items-center gap-1.5">
-                          <Layers className="h-3.5 w-3.5" />
-                          {session.rounds.length} 回合
-                        </span>
-                        <span className="inline-flex items-center gap-1.5">
-                          <Calendar className="h-3.5 w-3.5" />
-                          {formatDateTime(session.updatedAt)}
-                        </span>
+                      <div className="p-5">
+                        <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
+                          <span className="inline-flex items-center gap-1.5">
+                            <Layers className="h-3.5 w-3.5" />
+                            {session.rounds.length} 回合
+                          </span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <Calendar className="h-3.5 w-3.5" />
+                            {formatDateTime(session.updatedAt)}
+                          </span>
+                          <span>卷宗 {session.id.slice(0, 8)}</span>
+                        </div>
+                        <h2 className="line-clamp-2 text-base font-semibold leading-6 text-[var(--ink)] group-hover:text-[var(--cinnabar)]">
+                          {session.topic}
+                        </h2>
+                        <p className="mt-3 line-clamp-2 text-sm leading-6 text-[var(--muted)]">
+                          {session.recapSummary ?? session.rounds.at(-1)?.judgeSummary ?? "暂无裁判复盘。"}
+                        </p>
                       </div>
-                      <h2 className="line-clamp-2 text-base font-semibold leading-6 text-[var(--ink)] group-hover:text-[var(--cinnabar)]">
-                        {session.topic}
-                      </h2>
-                      <p className="mt-3 line-clamp-2 text-sm leading-6 text-[var(--muted)]">
-                        {session.recapSummary ?? session.rounds.at(-1)?.judgeSummary ?? "暂无裁判复盘。"}
-                      </p>
                     </div>
 
-                    <div className="flex items-center justify-between gap-5 border-t border-[var(--line)] pt-4 lg:border-t-0 lg:pt-0">
-                      <div className="text-right">
+                    <div className="flex items-center justify-between gap-5 border-t border-[var(--line)] bg-[var(--inline-surface)] p-5 lg:border-l lg:border-t-0">
+                      <div>
                         <div className="text-xs text-[var(--muted)]">优胜裁决</div>
-                        <div className="mt-1 flex items-center justify-end gap-1.5 text-sm font-semibold text-[var(--ink)]">
+                        <div className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-[var(--ink)]">
                           <Award className="h-4 w-4 text-[var(--brass)]" />
                           {winnerText(session.winner)}
                         </div>
+                        <div className="mt-3">
+                          <Badge tone={statusTone(session.status)}>{statusText(session.status)}</Badge>
+                        </div>
                       </div>
-                      <Badge tone={statusTone(session.status)}>{statusText(session.status)}</Badge>
                       <ChevronRight className="hidden h-5 w-5 text-[var(--muted-light)] transition group-hover:translate-x-0.5 group-hover:text-[var(--cinnabar)] sm:block" />
                     </div>
                   </div>

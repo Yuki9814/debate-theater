@@ -54,40 +54,68 @@ export default async function DashboardPage() {
   return (
     <AppShell>
       <div className="space-y-8">
-        <header className="flex flex-wrap items-end justify-between gap-5">
-          <div>
-            <div className="page-kicker">
-              <Terminal className="h-4 w-4 text-[var(--cinnabar)]" />
-              卷宗总台
-            </div>
-            <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)] sm:text-5xl">法庭总控台</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
-              从高频场景开辩、查看进行中的卷宗，并掌握本月剩余额度。
-            </p>
-          </div>
-          <Link className={buttonVariants({ variant: "primary", size: "lg" })} href="/debate/setup">
-            <Sparkles className="h-4 w-4" />
-            递交战书
-          </Link>
-        </header>
-
-        <section className="grid gap-4 md:grid-cols-3">
-          {[
-            { label: "开庭中", value: runningCount, icon: Clock, tone: "emerald" as const },
-            { label: "已结案", value: closedCount, icon: CheckCircle2, tone: "rose" as const },
-            { label: "累计回合", value: totalRounds, icon: PauseCircle, tone: "cyan" as const },
-          ].map((item) => {
-            const Icon = item.icon;
-            return (
-              <Panel className="p-5" key={item.label}>
-                <div className="flex items-center justify-between">
-                  <Badge tone={item.tone}>{item.label}</Badge>
-                  <Icon className="h-5 w-5 text-[var(--muted-light)]" />
+        <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <Panel className="docket-paper p-5 sm:p-7">
+            <div className="flex flex-wrap items-start justify-between gap-5">
+              <div>
+                <div className="page-kicker">
+                  <Terminal className="h-4 w-4 text-[var(--cinnabar)]" />
+                  卷宗总台
                 </div>
-                <div className="mt-5 font-serif text-4xl font-black text-[var(--ink)]">{item.value}</div>
-              </Panel>
-            );
-          })}
+                <h1 className="mt-4 font-serif text-4xl font-black text-[var(--ink)] sm:text-5xl">法庭总控台</h1>
+                <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--muted)]">
+                  从这里开辩、续审、复盘与管理额度。核心动作都压在第一屏，减少往返跳转。
+                </p>
+              </div>
+              <Link className={buttonVariants({ variant: "primary", size: "lg" })} href="/debate/setup">
+                <Sparkles className="h-4 w-4" />
+                递交战书
+              </Link>
+            </div>
+
+            <div className="mt-7 grid gap-3 md:grid-cols-3">
+              {[
+                { label: "开庭中", value: runningCount, icon: Clock, tone: "emerald" as const },
+                { label: "已结案", value: closedCount, icon: CheckCircle2, tone: "rose" as const },
+                { label: "累计回合", value: totalRounds, icon: PauseCircle, tone: "cyan" as const },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div className="rounded-md border border-[var(--line)] bg-white/42 p-4" key={item.label}>
+                    <div className="flex items-center justify-between">
+                      <Badge tone={item.tone}>{item.label}</Badge>
+                      <Icon className="h-5 w-5 text-[var(--muted-light)]" />
+                    </div>
+                    <div className="mt-5 font-serif text-4xl font-black text-[var(--ink)]">{item.value}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </Panel>
+
+          <Panel className="p-5 sm:p-6">
+            <div className="flex items-center gap-3">
+              <Zap className="h-5 w-5 text-[var(--cinnabar)]" />
+              <h2 className="font-serif text-xl font-bold text-[var(--ink)]">本月额度</h2>
+            </div>
+            <div className="mt-5 font-serif text-4xl font-black text-[var(--ink)]">
+              {entitlement.remainingRounds}
+              <span className="ml-2 text-sm font-semibold text-[var(--muted)]">/ {entitlement.plan.monthlyRoundLimit} 轮</span>
+            </div>
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--paper-quiet)]">
+              <div
+                className="h-full rounded-full bg-[var(--cinnabar)]"
+                style={{
+                  width: `${Math.max(4, Math.min(100, Math.round((entitlement.remainingRounds / Math.max(entitlement.plan.monthlyRoundLimit, 1)) * 100)))}%`,
+                }}
+              />
+            </div>
+            <p className="mt-4 text-sm leading-7 text-[var(--muted)]">{entitlement.upgradeRecommendation.message}</p>
+            <Link className={buttonVariants({ variant: "secondary", size: "sm", className: "mt-5" })} href="/dashboard#billing">
+              查看升级方案
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </Panel>
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[1fr_340px]">
@@ -121,19 +149,22 @@ export default async function DashboardPage() {
           </Panel>
 
           <Panel className="p-5 sm:p-6">
-            <div className="flex items-center gap-3">
-              <Zap className="h-5 w-5 text-[var(--cinnabar)]" />
-              <h2 className="font-serif text-xl font-bold text-[var(--ink)]">本月额度</h2>
+            <Badge tone="amber">下一步</Badge>
+            <div className="mt-5 space-y-3">
+              {[
+                ["开新辩题", "/debate/setup", "用 mock 模式快速验证议题质量。"],
+                ["续接卷宗", sessions[0] ? `/debate/${sessions[0].id}` : "/history", "回到最近一次庭审现场。"],
+                ["整理档案", "/history", "按状态、日期和关键词筛选。"],
+              ].map(([title, href, body]) => (
+                <Link className="group block rounded-md border border-[var(--line)] bg-white/35 p-3 transition hover:border-[var(--cinnabar)] hover:bg-white/65" href={href} key={title}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-bold text-[var(--ink)]">{title}</span>
+                    <ArrowRight className="h-3.5 w-3.5 text-[var(--muted-light)] transition group-hover:translate-x-0.5 group-hover:text-[var(--cinnabar)]" />
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-[var(--muted)]">{body}</p>
+                </Link>
+              ))}
             </div>
-            <div className="mt-5 font-serif text-4xl font-black text-[var(--ink)]">
-              {entitlement.remainingRounds}
-              <span className="ml-2 text-sm font-semibold text-[var(--muted)]">/ {entitlement.plan.monthlyRoundLimit} 轮</span>
-            </div>
-            <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{entitlement.upgradeRecommendation.message}</p>
-            <Link className={buttonVariants({ variant: "secondary", size: "sm", className: "mt-5" })} href="/dashboard#billing">
-              查看升级方案
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
           </Panel>
         </section>
 

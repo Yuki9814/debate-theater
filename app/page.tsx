@@ -4,8 +4,6 @@ import {
   BookOpen,
   CheckCircle2,
   Clock,
-  History,
-  Landmark,
   Scale,
   ShieldCheck,
   Sparkles,
@@ -52,55 +50,96 @@ export default async function Home() {
         getBillingEntitlement(user.id),
       ])
     : [[], await getBillingEntitlement("anonymous")];
-  const exampleHref = recentSessions[0] ? `/debate/${recentSessions[0].id}` : "/history";
+  const primarySession = recentSessions[0];
 
   return (
     <AppShell>
-      <div className="space-y-12">
-        <section className="grid gap-8 lg:grid-cols-[1.04fr_0.96fr] lg:items-end">
-          <div className="space-y-7 py-4">
-            <div className="page-kicker">
-              <Landmark className="h-4 w-4 text-[var(--cinnabar)]" />
-              公测自由辩论场
-            </div>
-
-            <div className="max-w-4xl space-y-5">
-              <h1 className="page-title">论衡剧场</h1>
-              <p className="max-w-2xl text-base leading-8 text-[var(--muted)] sm:text-lg">
-                让两个 AI 围绕同一议题攻防，并由裁判给出可复盘评分。三分钟开一场 mock 辩论，结案后沉淀成卷宗。
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <Link className={buttonVariants({ variant: "primary", size: "lg" })} href="/debate/setup">
-                <Sparkles className="h-4 w-4" />
-                开一场辩论
-              </Link>
-              <Link className={buttonVariants({ variant: "secondary", size: "lg" })} href={exampleHref}>
-                <History className="h-4 w-4" />
-                查看示例卷宗
-              </Link>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              {[
-                ["30 秒", "看懂议题、席次与评分"],
-                ["3 分钟", "跑完第一场 mock 辩论"],
-                ["结案后", "复盘、导出、继续追问"],
-              ].map(([value, label]) => (
-                <div className="rounded-md border border-[var(--line)] bg-[var(--inline-surface)] p-3" key={value}>
-                  <div className="font-serif text-2xl font-black text-[var(--ink)]">{value}</div>
-                  <div className="mt-1 text-xs leading-5 text-[var(--muted)]">{label}</div>
+      <div className="space-y-10">
+        <section className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_390px] xl:items-stretch">
+          <Panel className="docket-paper overflow-hidden p-0">
+            <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_310px]">
+              <div className="space-y-7 p-5 sm:p-7 lg:p-8">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-md border border-[var(--cinnabar)] bg-[var(--cinnabar)] font-serif text-xl font-black text-white shadow-[var(--glow-cinnabar)]">
+                    衡
+                  </span>
+                  <div>
+                    <h1 className="page-title">论衡剧场</h1>
+                    <p className="mt-2 max-w-2xl text-sm leading-7 text-[var(--muted)] sm:text-base">
+                      输入议题，甲乙两席自动攻防，中立裁判逐轮评分，结案后沉淀为可复盘卷宗。
+                    </p>
+                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
 
-          <Panel className="docket-paper p-5 sm:p-6">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Link className="group rounded-md border border-[var(--cinnabar)] bg-[var(--cinnabar-soft)] p-4 transition hover:bg-[var(--surface-hover)]" href="/debate/setup">
+                    <Sparkles className="h-5 w-5 text-[var(--cinnabar)]" />
+                    <div className="mt-4 font-serif text-xl font-bold text-[var(--ink)]">开辩</div>
+                    <p className="mt-2 text-xs leading-5 text-[var(--muted)]">从高频议题或空白战书开始。</p>
+                    <ArrowRight className="mt-4 h-4 w-4 text-[var(--cinnabar)] transition group-hover:translate-x-0.5" />
+                  </Link>
+                  <Link className="group rounded-md border border-[var(--line)] bg-white/42 p-4 transition hover:border-[var(--cinnabar)] hover:bg-white/70" href={primarySession ? `/debate/${primarySession.id}` : "/dashboard"}>
+                    <Clock className="h-5 w-5 text-[var(--brass)]" />
+                    <div className="mt-4 font-serif text-xl font-bold text-[var(--ink)]">续辩</div>
+                    <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
+                      {primarySession ? `接回第 ${primarySession.currentRound}/${primarySession.maxRounds} 轮。` : "查看总控台与运行卷宗。"}
+                    </p>
+                    <ArrowRight className="mt-4 h-4 w-4 text-[var(--brass)] transition group-hover:translate-x-0.5" />
+                  </Link>
+                  <Link className="group rounded-md border border-[var(--line)] bg-white/42 p-4 transition hover:border-[var(--cinnabar)] hover:bg-white/70" href="/history">
+                    <BookOpen className="h-5 w-5 text-[var(--lapis)]" />
+                    <div className="mt-4 font-serif text-xl font-bold text-[var(--ink)]">复盘</div>
+                    <p className="mt-2 text-xs leading-5 text-[var(--muted)]">搜索、筛选、导出结案卷宗。</p>
+                    <ArrowRight className="mt-4 h-4 w-4 text-[var(--lapis)] transition group-hover:translate-x-0.5" />
+                  </Link>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {[
+                    ["30 秒", "定题与席次"],
+                    ["3 分钟", "跑通 mock 首轮"],
+                    ["结案后", "评分、导出、复盘"],
+                  ].map(([value, label]) => (
+                    <div className="rounded-md border border-[var(--line)] bg-[var(--inline-surface)] p-3" key={value}>
+                      <div className="font-serif text-2xl font-black text-[var(--ink)]">{value}</div>
+                      <div className="mt-1 text-xs leading-5 text-[var(--muted)]">{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-[var(--line)] bg-[var(--inline-surface)] p-5 lg:border-l lg:border-t-0">
+                <div className="flex items-center justify-between gap-3">
+                  <Badge tone={planTone(entitlement.remainingRounds)}>
+                    {entitlement.remainingRounds}/{entitlement.plan.monthlyRoundLimit} 轮
+                  </Badge>
+                  <ShieldCheck className="h-5 w-5 text-[var(--jade)]" />
+                </div>
+                <h2 className="mt-4 font-serif text-2xl font-bold text-[var(--ink)]">本月庭务额度</h2>
+                <p className="mt-3 text-sm leading-7 text-[var(--muted)]">
+                  mock 模式可直接体验完整流程，真实接入器仍在服务端安全边界内运行。
+                </p>
+                <div className="mt-5 h-2 overflow-hidden rounded-full bg-[var(--paper-quiet)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--cinnabar)]"
+                    style={{
+                      width: `${Math.max(4, Math.min(100, Math.round((entitlement.remainingRounds / Math.max(entitlement.plan.monthlyRoundLimit, 1)) * 100)))}%`,
+                    }}
+                  />
+                </div>
+                <Link className={buttonVariants({ variant: "secondary", size: "sm", className: "mt-5" })} href="/dashboard#billing">
+                  查看方案
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            </div>
+          </Panel>
+
+          <Panel className="p-5 sm:p-6">
             <div className="flex items-center justify-between border-b border-[var(--line)] pb-4">
               <div>
                 <Badge tone="rose">今日可开题</Badge>
-                <h2 className="mt-3 font-serif text-2xl font-bold text-[var(--ink)]">从一个问题开始</h2>
+                <h2 className="mt-3 font-serif text-2xl font-bold text-[var(--ink)]">三条战书</h2>
               </div>
               <Scale className="h-6 w-6 text-[var(--cinnabar)]" />
             </div>
@@ -113,9 +152,7 @@ export default async function Home() {
                   key={prompt}
                 >
                   <span className="text-sm leading-6 text-[var(--ink-soft)]">
-                    <span className="mr-2 font-serif text-lg font-bold text-[var(--cinnabar)]">
-                      {index + 1}
-                    </span>
+                    <span className="mr-2 font-serif text-lg font-bold text-[var(--cinnabar)]">{index + 1}</span>
                     {prompt}
                   </span>
                   <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-[var(--muted-light)] transition group-hover:translate-x-0.5 group-hover:text-[var(--cinnabar)]" />

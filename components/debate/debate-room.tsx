@@ -96,6 +96,17 @@ function winnerText(winner: string | null) {
   return winner;
 }
 
+function nextActionText(session: DebateSessionDTO) {
+  if (session.status === "draft") return "点击开庭生成首轮攻防。";
+  if (session.status === "running") return "系统将自动整理下一轮发言与判词。";
+  if (session.status === "awaiting_confirmation" || session.status === "paused") {
+    return `继续生成第 ${Math.min(session.currentRound + 1, session.maxRounds)} 轮，或手动结案。`;
+  }
+  if (session.status === "ended") return "卷宗已结案，可复盘并导出。";
+  if (session.status === "stopped") return "庭审已中止，可保留卷宗复盘。";
+  return "等待庭务操作。";
+}
+
 const scoreDimensions = [
   ["logic", "逻辑"],
   ["evidence", "论据"],
@@ -383,6 +394,8 @@ function JudgePanel({ session }: { session: DebateSessionDTO }) {
   const latest = session.rounds.at(-1);
   const aAverage = averageFor(session.rounds, "A");
   const bAverage = averageFor(session.rounds, "B");
+  const leader = aAverage === bAverage ? "持平" : aAverage > bAverage ? "甲方领先" : "乙方领先";
+  const gap = Math.abs(aAverage - bAverage);
 
   return (
     <Panel className="docket-paper overflow-hidden p-0">
@@ -445,6 +458,20 @@ function JudgePanel({ session }: { session: DebateSessionDTO }) {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--line)] p-5">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-md border border-[var(--line)] bg-white/42 p-3">
+            <div className="text-[10px] font-semibold text-[var(--muted)]">当前态势</div>
+            <div className="mt-2 font-serif text-xl font-bold text-[var(--ink)]">{leader}</div>
+            <p className="mt-1 text-xs leading-5 text-[var(--muted)]">均分差 {gap || "--"} 分</p>
+          </div>
+          <div className="rounded-md border border-[var(--line)] bg-white/42 p-3">
+            <div className="text-[10px] font-semibold text-[var(--muted)]">下一步</div>
+            <p className="mt-2 text-xs font-semibold leading-5 text-[var(--ink-soft)]">{nextActionText(session)}</p>
           </div>
         </div>
       </div>
@@ -999,7 +1026,7 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
           <ConversationHall isRoundRunning={isRoundRunning} session={session} streamMessage={streamMessage} />
         </div>
 
-        <div className="order-1 space-y-5 xl:order-2">
+        <div className="order-1 space-y-5 xl:sticky xl:top-8 xl:order-2 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto xl:pr-1 thin-scrollbar">
           <JudgePanel session={session} />
           <RecapPanel session={session} />
           <SourcePackPanel session={session} />
