@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { canExposeLoginUrl, sendLoginLinkEmail } from "@/lib/auth/email";
 import { createLoginLink } from "@/lib/auth/session";
 import { errorResponse } from "@/lib/errors";
 import { canonicalOrigin, requireMutationSecurity } from "@/lib/security/mutation";
@@ -24,10 +25,19 @@ export async function POST(request: Request) {
       name: body.name || undefined,
       origin: canonicalOrigin(request),
     });
+    const delivery = await sendLoginLinkEmail({
+      to: body.email,
+      name: body.name || undefined,
+      verificationUrl: loginLink.verificationUrl,
+      expiresAt: loginLink.expiresAt,
+    });
+    const exposeUrl = canExposeLoginUrl();
     return Response.json({
       loginLink: {
         expiresAt: loginLink.expiresAt.toISOString(),
-        verificationUrl: loginLink.verificationUrl,
+        sent: delivery.sent,
+        deliveryProvider: delivery.provider,
+        ...(exposeUrl ? { verificationUrl: loginLink.verificationUrl } : {}),
       },
     });
   } catch (error) {

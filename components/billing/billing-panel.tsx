@@ -58,7 +58,7 @@ const plans: Plan[] = [
   },
 ];
 
-export function BillingPanel() {
+export function BillingPanel({ checkoutStatus }: { checkoutStatus?: "success" | "cancelled" | null }) {
   const [entitlements, setEntitlements] = useState<EntitlementsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
@@ -131,6 +131,20 @@ export function BillingPanel() {
           <Badge tone="emerald">{plans.find((plan) => plan.id === currentPlanId)?.name || "已启用"}</Badge>
         )}
       </div>
+
+      {checkoutStatus ? (
+        <div
+          className={cn(
+            "mx-5 mt-5 rounded-md border p-4 text-sm sm:mx-6",
+            checkoutStatus === "success"
+              ? "border-[var(--jade)]/35 bg-[var(--jade-soft)] text-[var(--jade)]"
+              : "border-[var(--brass)]/35 bg-[var(--brass-soft)] text-[var(--brass)]",
+          )}
+          role="status"
+        >
+          {checkoutStatus === "success" ? "支付回流已完成，订阅状态会通过 webhook 同步。" : "支付已取消，可稍后重新升级。"}
+        </div>
+      ) : null}
 
       {entitlements?.entitlement ? (
         <div className="mx-5 mt-5 rounded-md border border-[var(--line)] bg-white/35 p-4 text-sm leading-7 text-[var(--muted)] sm:mx-6">

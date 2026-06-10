@@ -12,6 +12,8 @@ The current implementation uses mock billing locally while enforcing a real serv
 - Debate round generation calls `assertCanRunRound` before model calls.
 - Debate round generation records a `UsageEvent` after a successful round.
 - `DebateRound` stores estimated input tokens, output tokens, and estimated cost.
+- Checkout return URLs land on `/dashboard?checkout=success` or `/dashboard?checkout=cancelled`, and the billing panel renders the visible return state.
+- Free users can preview exports; paid plans unlock full Markdown / JSON downloads.
 
 ## Production Upgrade Path
 
@@ -20,6 +22,7 @@ The current implementation uses mock billing locally while enforcing a real serv
 3. Configure `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`.
 4. Point the Stripe webhook endpoint to `/api/billing/webhook`.
 5. Replace demo user fallback with real authenticated users before public billing.
+6. Confirm the admin `/api/health` readiness response marks Stripe as configured before paid traffic.
 
 ## Environment
 

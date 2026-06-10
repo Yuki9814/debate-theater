@@ -13,15 +13,26 @@ function setEnv(key: string, value: string | undefined) {
 describe("rate limiting", () => {
   const originalRateLimitBackend = process.env.RATE_LIMIT_BACKEND;
   const originalTrustProxy = process.env.TRUST_PROXY_HEADERS;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalUpstashUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const originalUpstashToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
     delete process.env.RATE_LIMIT_BACKEND;
     delete process.env.TRUST_PROXY_HEADERS;
+    delete process.env.UPSTASH_REDIS_REST_URL;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    globalThis.fetch = originalFetch;
   });
 
   afterEach(() => {
     setEnv("RATE_LIMIT_BACKEND", originalRateLimitBackend);
     setEnv("TRUST_PROXY_HEADERS", originalTrustProxy);
+    setEnv("NODE_ENV", originalNodeEnv);
+    setEnv("UPSTASH_REDIS_REST_URL", originalUpstashUrl);
+    setEnv("UPSTASH_REDIS_REST_TOKEN", originalUpstashToken);
+    globalThis.fetch = originalFetch;
   });
 
   it("allows requests within the limit", async () => {
@@ -162,5 +173,21 @@ describe("rate limiting", () => {
     assert.equal(response.headers.get("RateLimit-Limit"), "5");
     assert.equal(response.headers.get("RateLimit-Remaining"), "0");
     assert.equal(response.headers.get("RateLimit-Reset"), "1700000000");
+  });
+
+  it("fails closed when Upstash is selected but unavailable in production", async () => {
+    setEnv("NODE_ENV", "production");
+    process.env.RATE_LIMIT_BACKEND = "upstash";
+    process.env.UPSTASH_REDIS_REST_URL = "https://redis.example.com";
+    process.env.UPSTASH_REDIS_REST_TOKEN = "token";
+    globalThis.fetch = (() => Promise.reject(new Error("offline"))) as typeof fetch;
+
+    const result = await consumeRateLimit("upstash-closed", new Request("https://app.example.com/api"), {
+      limit: 10,
+      windowMs: 1000,
+    });
+
+    assert.equal(result.allowed, false);
+    assert.equal(result.remaining, 0);
   });
 });

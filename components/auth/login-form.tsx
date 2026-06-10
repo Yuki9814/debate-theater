@@ -14,10 +14,12 @@ export function LoginForm() {
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState({ email: "", name: "" });
   const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   function submit() {
     setError(null);
+    setMessage(null);
     setVerificationUrl(null);
     startTransition(async () => {
       try {
@@ -26,12 +28,20 @@ export function LoginForm() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(form),
         });
-        const payload = (await response.json()) as { loginLink?: { verificationUrl: string }; error?: string };
+        const payload = (await response.json()) as {
+          loginLink?: { verificationUrl?: string; expiresAt?: string };
+          error?: string;
+        };
         if (!response.ok) {
           setError(payload.error ?? "登录链接创建失败。");
           return;
         }
         setVerificationUrl(payload.loginLink?.verificationUrl ?? null);
+        setMessage(
+          payload.loginLink?.verificationUrl
+            ? "本地登录链接已生成。"
+            : `登录邮件已发送，链接有效期至 ${payload.loginLink?.expiresAt?.slice(11, 16) ?? "15 分钟内"}。`,
+        );
       } catch (loginError) {
         setError(loginError instanceof Error ? loginError.message : "登录链接创建失败。");
       }
@@ -108,6 +118,7 @@ export function LoginForm() {
           />
         </label>
         {error ? <p className="rounded-md bg-[var(--rose-soft)] p-3 text-sm text-[var(--rose)]" role="alert">{error}</p> : null}
+        {message ? <p className="rounded-md bg-[var(--jade-soft)] p-3 text-sm text-[var(--jade)]" role="status">{message}</p> : null}
         {verificationUrl ? (
           <a
             className="flex items-center gap-2 rounded-md border border-[var(--jade)]/35 bg-[var(--jade-soft)] p-3 text-sm font-semibold text-[var(--jade)]"

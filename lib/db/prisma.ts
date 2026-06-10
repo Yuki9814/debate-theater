@@ -1551,6 +1551,18 @@ export const prisma = {
     },
   },
   waitlistLead: {
+    async findMany(args?: {
+      orderBy?: { createdAt?: "asc" | "desc" };
+      take?: number;
+    }) {
+      await ensureDatabase();
+      const direction = args?.orderBy?.createdAt === "asc" ? "ASC" : "DESC";
+      const limit = Math.max(1, Math.min(args?.take ?? 1000, 5000));
+      const rows = getDb()
+        .prepare(`SELECT * FROM "WaitlistLead" ORDER BY "createdAt" ${direction} LIMIT ?`)
+        .all(limit) as Row[];
+      return rows.map(mapWaitlistLead);
+    },
     async create(args: {
       data: {
         moduleId: string;

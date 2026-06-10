@@ -6,6 +6,7 @@ import { BillingPanel } from "@/components/billing/billing-panel";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
+import { isAdminEmail } from "@/lib/auth/admin";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getBillingEntitlement } from "@/lib/billing/service";
 import { sessionInclude } from "@/lib/debate/engine";
@@ -34,7 +35,17 @@ function statusText(status: string) {
   return map[status] ?? status;
 }
 
-export default async function DashboardPage() {
+type DashboardPageProps = {
+  searchParams: Promise<{ checkout?: string | string[] }>;
+};
+
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function DashboardPage({ searchParams }: DashboardPageProps) {
+  const params = await searchParams;
+  const checkoutStatus = firstParam(params.checkout);
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   const [sessions, entitlement] = await Promise.all([
@@ -50,6 +61,7 @@ export default async function DashboardPage() {
   const runningCount = sessions.filter((session) => session.status === "running").length;
   const closedCount = sessions.filter((session) => session.status === "ended" || session.status === "stopped").length;
   const totalRounds = sessions.reduce((sum, session) => sum + session.rounds.length, 0);
+  const canSeeOps = isAdminEmail(user.email);
 
   return (
     <AppShell>
@@ -231,6 +243,15 @@ export default async function DashboardPage() {
                     <span className="text-xs text-[var(--muted)]">{item.status}</span>
                   </Link>
                 ))}
+                {canSeeOps ? (
+                  <Link
+                    className="flex items-center justify-between gap-3 py-4 text-sm transition hover:text-[var(--cinnabar)]"
+                    href="/admin/waitlist"
+                  >
+                    <span className="font-semibold text-[var(--ink)]">等待名单运营</span>
+                    <span className="text-xs text-[var(--muted)]">Admin</span>
+                  </Link>
+                ) : null}
               </div>
             </Panel>
 
@@ -248,7 +269,7 @@ export default async function DashboardPage() {
         </section>
 
         <div id="billing">
-          <BillingPanel />
+          <BillingPanel checkoutStatus={checkoutStatus === "success" || checkoutStatus === "cancelled" ? checkoutStatus : null} />
         </div>
       </div>
     </AppShell>

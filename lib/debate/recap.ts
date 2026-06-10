@@ -27,6 +27,16 @@ function participant(participants: ParticipantDTO[], side: "A" | "B") {
   return participants.find((item) => item.side === side);
 }
 
+function strongestRebuttal(round: DebateRoundDTO | undefined) {
+  if (!round) return "等待首轮攻防后生成最强反驳。";
+  const aScore = scoreFor(round, "A");
+  const bScore = scoreFor(round, "B");
+  if (aScore === bScore) return "双方暂时持平，下一轮应直接攻击对方核心定义。";
+  return aScore > bScore
+    ? `乙方最强反驳：回应甲方“${compact(round.speakerAContent, 72)}”中的关键前提，并补足反例。`
+    : `甲方最强反驳：回应乙方“${compact(round.speakerBContent, 72)}”中的关键前提，并补足正面证据。`;
+}
+
 function weakestDimension(score: JudgeScoreDTO | undefined) {
   if (!score) return "暂无评分维度";
   const dimensions = [
@@ -71,22 +81,23 @@ export function buildSessionRecap(session: {
   const aStance = participant(session.participants, "A")?.stance ?? "甲方主张";
   const bStance = participant(session.participants, "B")?.stance ?? "乙方主张";
   const closed = session.status === "ended" || session.status === "stopped";
+  const fallbackSources = session.sourceCards?.some((card) => card.sourceName === "search-fallback") ?? false;
 
   return {
     recapSummary: `${closed ? "结案复盘" : "阶段复盘"}：${winner}。甲方均分 ${aAverage || "--"}，乙方均分 ${bAverage || "--"}；最新判词认为${latest?.judgeSummary ?? "双方仍需继续举证"}。`,
     keyArguments: [
-      `甲方主线：${compact(aStance)}`,
-      `乙方主线：${compact(bStance)}`,
-      `最新攻防：${compact(latest?.judgeSummary ?? "等待裁判判词")}`,
+      `关键断言 A：${compact(aStance)}`,
+      `关键断言 B：${compact(bStance)}`,
+      `裁判关注：${compact(latest?.judgeSummary ?? "等待裁判判词")}`,
     ],
     weaknesses: [
-      `甲方需补强：${weakestDimension(aScore)}维度`,
-      `乙方需补强：${weakestDimension(bScore)}维度`,
-      "下一步：围绕裁判判词补证据、压缩概念边界，并直接回应对方最强论点。",
+      `证据缺口 A：${weakestDimension(aScore)}维度需要补证据或定义边界`,
+      `证据缺口 B：${weakestDimension(bScore)}维度需要补证据或定义边界`,
+      "共同缺口：具体事实、案例和可检验前提需要与结论逐条绑定。",
     ],
     evidenceChain:
       session.sourceCards && session.sourceCards.length > 0
-        ? session.sourceCards.slice(0, 4).map((card) => `${card.sourceName}：${compact(card.title, 72)}`)
+        ? session.sourceCards.slice(0, 4).map((card) => `${card.sourceName}：${compact(card.title, 72)}${card.sourceName === "search-fallback" ? "（占位入口）" : ""}`)
         : ["暂无外部来源卡；本场主要依赖双方论证自洽性。"],
     personaDrift:
       session.mode === "persona"
@@ -100,13 +111,14 @@ export function buildSessionRecap(session: {
       session.mode === "research"
         ? [
             `资料包来源数：${session.sourceCards?.length ?? 0}`,
+            fallbackSources ? "当前资料包含占位来源，不可当作已抓取事实证据。" : "资料包为实时来源，仍需交叉验证。",
             "未引用来源的具体新闻、数据、法律状态应被视为事实风险。",
           ]
         : ["非联网热点模式：事实风险未接入来源卡自动校验。"],
     nextActions: [
-      "追问胜方最薄弱的证据链。",
-      "要求败方重构最强反驳而不是重复立场。",
-      "必要时降低最大回合或触发人工裁决，避免无效消耗。",
+      strongestRebuttal(latest),
+      "下一轮建议：追问胜方最薄弱证据链，要求败方重构最强反驳而不是重复立场。",
+      "庭务建议：必要时降低最大回合或触发人工裁决，避免无效消耗。",
     ],
     exportAvailable: rounds.length > 0,
   };

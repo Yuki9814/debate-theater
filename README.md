@@ -47,12 +47,23 @@ STRIPE_PRICE_PRO_MONTHLY=""
 STRIPE_PRICE_STUDIO_MONTHLY=""
 AUTH_PROVIDER=""
 AUTH_SECRET=""
+EMAIL_PROVIDER=""
+EMAIL_FROM=""
+RESEND_API_KEY=""
+RATE_LIMIT_BACKEND="memory"
+UPSTASH_REDIS_REST_URL=""
+UPSTASH_REDIS_REST_TOKEN=""
+SEARCH_PROVIDER="tavily"
+TAVILY_API_KEY=""
+SENTRY_DSN=""
+OTEL_EXPORTER_OTLP_ENDPOINT=""
 ```
 
 Do not expose provider keys with `NEXT_PUBLIC_`. Browser code only calls local API routes; model calls stay behind server-side adapters.
 
 Real provider key storage requires `API_KEY_ENCRYPTION_SECRET` to be at least 32 random characters. Without it, mock mode still works, but saving real keys is blocked.
 Hot-topic research uses the Tavily adapter by default; configure its server-side credential in the deployment environment when real web research is needed.
+Production magic-link login should use `EMAIL_PROVIDER=resend`; production responses do not include direct verification URLs.
 
 ## Verification
 

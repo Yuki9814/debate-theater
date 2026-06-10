@@ -944,9 +944,24 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
           const eventName = rawEvent.match(/^event: (.+)$/m)?.[1];
           const dataLine = rawEvent.match(/^data: (.+)$/m)?.[1];
           if (!eventName || !dataLine) continue;
-          const data = JSON.parse(dataLine) as { message?: string; session?: DebateSessionDTO; error?: string };
-          if (eventName === "stage") setStreamMessage(data.message ?? null);
+          const data = JSON.parse(dataLine) as {
+            message?: string;
+            session?: DebateSessionDTO;
+            error?: string;
+            round?: number;
+            summary?: string;
+            inputTokens?: number;
+            outputTokens?: number;
+          };
+          if (eventName === "speaker-a-start") setStreamMessage(data.message ?? "甲方席开始陈词。");
+          if (eventName === "speaker-a-complete") setStreamMessage(`第 ${data.round ?? ""} 轮甲方陈词已落卷。`);
+          if (eventName === "speaker-b-complete") setStreamMessage(`第 ${data.round ?? ""} 轮乙方回应已落卷。`);
+          if (eventName === "judge-complete") setStreamMessage(data.summary ? `裁判判词：${data.summary}` : "中央裁判席已完成评分。");
+          if (eventName === "usage-delta") {
+            setStreamMessage(`用量估算：${data.inputTokens ?? 0} 输入 / ${data.outputTokens ?? 0} 输出令牌。`);
+          }
           if (eventName === "session" && data.session) setSession(data.session);
+          if (eventName === "done") setStreamMessage("本轮庭审已归档。");
           if (eventName === "error") throw new Error(data.error ?? "回合生成失败。");
         }
       }

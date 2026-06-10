@@ -1,5 +1,6 @@
 import { requireCurrentUser } from "@/lib/auth/session";
 import { runNextRound, updateSessionStatus } from "@/lib/debate/engine";
+import { buildRoundCompletionEvents, sseEvent } from "@/lib/debate/stream-events";
 import { errorResponse } from "@/lib/errors";
 import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
@@ -7,10 +8,6 @@ import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
 type RouteContext = {
   params: Promise<{ sessionId: string }>;
 };
-
-function event(name: string, data: unknown) {
-  return `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
-}
 
 export async function POST(request: Request, context: RouteContext) {
   const { sessionId } = await context.params;
@@ -28,14 +25,14 @@ export async function POST(request: Request, context: RouteContext) {
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
-        const send = (name: string, data: unknown) => controller.enqueue(encoder.encode(event(name, data)));
+        const send = (name: Parameters<typeof sseEvent>[0], data: unknown) => controller.enqueue(encoder.encode(sseEvent(name, data)));
         try {
-          send("stage", { stage: "speaker-a", message: "甲方席开始陈词。" });
-          send("stage", { stage: "speaker-b", message: "乙方席准备反驳。" });
-          send("stage", { stage: "judge", message: "中央裁判席正在评分。" });
+          send("speaker-a-start", { message: "甲方席开始陈词。" });
           const session = await runNextRound(sessionId, user.id);
-          send("session", { session });
-          send("done", { ok: true });
+          const latestRound = session.rounds.at(-1);
+          for (const item of buildRoundCompletionEvents(session, latestRound)) {
+            send(item.name, item.data);
+          }
         } catch {
           send("error", {
             error: "回合生成失败，请稍后重试。",
