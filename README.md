@@ -68,14 +68,14 @@ Production magic-link login should use `EMAIL_PROVIDER=resend`; production respo
 ## Verification
 
 ```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm security:scan
-pnpm build
+pnpm install --frozen-lockfile
+pnpm verify
 ```
 
 `pnpm verify` runs the full local verification chain.
+GitHub Actions runs the same chain on Node.js 22 with the locked dependency
+graph, including lint, type checking, tests, the security scan, and a production
+build.
 
 ## Launch Readiness Docs
 
