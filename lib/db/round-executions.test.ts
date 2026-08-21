@@ -160,6 +160,87 @@ describe("database-backed round execution", () => {
     assert.equal(replay.execution.roundId, completed.roundId);
   });
 
+  it("rolls back every completion side effect when the final execution write fails", () => {
+    const sessionId = randomUUID();
+    const userId = randomUUID();
+    seedSession(first, sessionId, userId);
+    const claim = first.claim({ sessionId, roundNumber: 1, requestId: "request:rollback-trigger" });
+    const ownerToken = claim.ownerToken as string;
+    first.checkpoint({
+      executionId: claim.execution.id,
+      ownerToken,
+      stage: "speaker_a_completed",
+      speakerAContent: "A",
+      speakerAUsage: usage,
+    });
+    first.checkpoint({
+      executionId: claim.execution.id,
+      ownerToken,
+      stage: "speaker_b_completed",
+      speakerBContent: "B",
+      speakerBUsage: usage,
+    });
+    first.checkpoint({
+      executionId: claim.execution.id,
+      ownerToken,
+      stage: "judge_completed",
+      judgeResult,
+      judgeUsage: usage,
+    });
+    first.database.exec(`
+      CREATE TRIGGER "round_execution_test_abort"
+      BEFORE UPDATE OF "status" ON "DebateRoundExecution"
+      WHEN NEW."status" = 'completed'
+      BEGIN
+        SELECT RAISE(ABORT, 'forced completion failure');
+      END;
+    `);
+
+    try {
+      assert.throws(() =>
+        first.complete({
+          executionId: claim.execution.id,
+          ownerToken,
+          userId,
+          providerId: "mock",
+          sessionStatus: "running",
+          winner: null,
+          speakerAContent: "A",
+          speakerBContent: "B",
+          judgeResult,
+          usage,
+        }),
+      );
+    } finally {
+      first.database.exec(`DROP TRIGGER "round_execution_test_abort"`);
+    }
+
+    const roundCount = first.database
+      .prepare(`SELECT COUNT(*) AS count FROM "DebateRound" WHERE "sessionId" = ?`)
+      .get(sessionId) as { count: number };
+    const scoreCount = first.database
+      .prepare(
+        `SELECT COUNT(*) AS count FROM "JudgeScore"
+         WHERE "roundId" IN (SELECT "id" FROM "DebateRound" WHERE "sessionId" = ?)`
+      )
+      .get(sessionId) as { count: number };
+    const usageCount = first.database
+      .prepare(`SELECT COUNT(*) AS count FROM "UsageEvent" WHERE "sessionId" = ?`)
+      .get(sessionId) as { count: number };
+    const session = first.database
+      .prepare(`SELECT "currentRound" FROM "DebateSession" WHERE "id" = ?`)
+      .get(sessionId) as { currentRound: number };
+    const execution = first.database
+      .prepare(`SELECT "status", "roundId" FROM "DebateRoundExecution" WHERE "id" = ?`)
+      .get(claim.execution.id) as { status: string; roundId: string | null };
+    assert.equal(roundCount.count, 0);
+    assert.equal(scoreCount.count, 0);
+    assert.equal(usageCount.count, 0);
+    assert.equal(session.currentRound, 0);
+    assert.equal(execution.status, "judge_completed");
+    assert.equal(execution.roundId, null);
+  });
+
   it("does not let an expired owner pause a round resumed by another process", () => {
     let now = Date.parse("2026-08-21T12:00:00.000Z");
     const expiredOwner = new RoundExecutionStore(databasePath, { clock: () => now, leaseMs: 1_000 });
@@ -204,5 +285,269 @@ describe("database-backed round execution", () => {
       expiredOwner.close();
       resumedOwner.close();
     }
+  });
+
+  it("rejects checkpoints and completion after the lease expires", () => {
+    let now = Date.parse("2026-08-21T13:00:00.000Z");
+    const expiring = new RoundExecutionStore(databasePath, { clock: () => now, leaseMs: 1_000 });
+    try {
+      const sessionId = randomUUID();
+      const userId = randomUUID();
+      seedSession(expiring, sessionId, userId);
+      const claim = expiring.claim({ sessionId, roundNumber: 1, requestId: "request:lease-expiry" });
+      const ownerToken = claim.ownerToken as string;
+      expiring.checkpoint({
+        executionId: claim.execution.id,
+        ownerToken,
+        stage: "speaker_a_completed",
+        speakerAContent: "A",
+        speakerAUsage: usage,
+      });
+      expiring.checkpoint({
+        executionId: claim.execution.id,
+        ownerToken,
+        stage: "speaker_b_completed",
+        speakerBContent: "B",
+        speakerBUsage: usage,
+      });
+      expiring.checkpoint({
+        executionId: claim.execution.id,
+        ownerToken,
+        stage: "judge_completed",
+        judgeResult,
+        judgeUsage: usage,
+      });
+      now += 1_001;
+
+      assert.throws(() =>
+        expiring.checkpoint({
+          executionId: claim.execution.id,
+          ownerToken,
+          stage: "judge_completed",
+          judgeResult,
+          judgeUsage: usage,
+        }),
+      );
+      assert.throws(() =>
+        expiring.complete({
+          executionId: claim.execution.id,
+          ownerToken,
+          userId,
+          providerId: "mock",
+          sessionStatus: "running",
+          winner: null,
+          speakerAContent: "A",
+          speakerBContent: "B",
+          judgeResult,
+          usage,
+        }),
+      );
+      const roundCount = expiring.database
+        .prepare(`SELECT COUNT(*) AS count FROM "DebateRound" WHERE "sessionId" = ?`)
+        .get(sessionId) as { count: number };
+      const usageCount = expiring.database
+        .prepare(`SELECT COUNT(*) AS count FROM "UsageEvent" WHERE "sessionId" = ?`)
+        .get(sessionId) as { count: number };
+      const session = expiring.database
+        .prepare(`SELECT "currentRound" FROM "DebateSession" WHERE "id" = ?`)
+        .get(sessionId) as { currentRound: number };
+      assert.equal(roundCount.count, 0);
+      assert.equal(usageCount.count, 0);
+      assert.equal(session.currentRound, 0);
+    } finally {
+      expiring.close();
+    }
+  });
+
+  it("preserves a newer user stop and forced winner while completion only advances accounting", () => {
+    const sessionId = randomUUID();
+    const userId = randomUUID();
+    seedSession(first, sessionId, userId);
+    const claim = first.claim({ sessionId, roundNumber: 1, requestId: "request:user-control-race" });
+    const ownerToken = claim.ownerToken as string;
+    first.checkpoint({
+      executionId: claim.execution.id,
+      ownerToken,
+      stage: "speaker_a_completed",
+      speakerAContent: "A",
+      speakerAUsage: usage,
+    });
+    first.checkpoint({
+      executionId: claim.execution.id,
+      ownerToken,
+      stage: "speaker_b_completed",
+      speakerBContent: "B",
+      speakerBUsage: usage,
+    });
+    first.checkpoint({
+      executionId: claim.execution.id,
+      ownerToken,
+      stage: "judge_completed",
+      judgeResult,
+      judgeUsage: usage,
+    });
+    first.database
+      .prepare(
+        `UPDATE "DebateSession"
+         SET "status" = 'stopped', "winner" = 'A', "controlVersion" = "controlVersion" + 1
+         WHERE "id" = ?`,
+      )
+      .run(sessionId);
+
+    first.complete({
+      executionId: claim.execution.id,
+      ownerToken,
+      userId,
+      providerId: "mock",
+      sessionStatus: "ended",
+      winner: "B",
+      speakerAContent: "A",
+      speakerBContent: "B",
+      judgeResult,
+      usage,
+    });
+
+    const session = first.database
+      .prepare(`SELECT "currentRound", "status", "winner" FROM "DebateSession" WHERE "id" = ?`)
+      .get(sessionId) as { currentRound: number; status: string; winner: string };
+    assert.equal(session.currentRound, 1);
+    assert.equal(session.status, "stopped");
+    assert.equal(session.winner, "A");
+  });
+
+  it("refreshes the execution control version when a failed round is resumed after user recovery", () => {
+    const sessionId = randomUUID();
+    const userId = randomUUID();
+    seedSession(first, sessionId, userId);
+    const original = first.claim({ sessionId, roundNumber: 1, requestId: "request:failed-before-recovery" });
+    first.fail({
+      executionId: original.execution.id,
+      ownerToken: original.ownerToken as string,
+      errorCode: "AI_TIMEOUT",
+      errorMessage: "provider timed out",
+    });
+    first.database
+      .prepare(
+        `UPDATE "DebateSession"
+         SET "status" = 'running', "controlVersion" = "controlVersion" + 1
+         WHERE "id" = ?`,
+      )
+      .run(sessionId);
+
+    const resumed = second.claim({ sessionId, roundNumber: 1, requestId: "request:recovery-retry" });
+    assert.equal(resumed.outcome, "resumed");
+    assert.equal(resumed.execution.controlVersion, 1);
+    assert.ok(resumed.ownerToken);
+    const checkpoint = second.checkpoint({
+      executionId: resumed.execution.id,
+      ownerToken: resumed.ownerToken as string,
+      stage: "speaker_a_completed",
+      speakerAContent: "recovered A",
+      speakerAUsage: usage,
+    });
+    assert.equal(checkpoint.speakerAContent, "recovered A");
+  });
+
+  it("reconciles a legacy orphan round exactly once and pauses non-terminal sessions", () => {
+    const sessionId = randomUUID();
+    const userId = randomUUID();
+    seedSession(first, sessionId, userId);
+    const roundId = randomUUID();
+    const now = new Date().toISOString();
+    first.database
+      .prepare(
+        `INSERT INTO "DebateRound"
+          ("id", "sessionId", "roundNumber", "speakerAContent", "speakerBContent", "judgeSummary", "judgeComment", "confidence", "inputTokens", "outputTokens", "estimatedCostUsd", "createdAt")
+         VALUES (?, ?, 1, 'legacy A', 'legacy B', 'legacy summary', 'legacy comment', 0.8, 11, 7, 0.002, ?)`,
+      )
+      .run(roundId, sessionId, now);
+
+    const reconciled = first.claim({
+      sessionId,
+      roundNumber: 1,
+      requestId: "request:legacy-orphan",
+      userId,
+      providerId: "mock",
+    });
+    assert.equal(reconciled.outcome, "completed");
+    assert.equal(reconciled.execution.roundId, roundId);
+
+    const session = first.database
+      .prepare(`SELECT "currentRound", "status" FROM "DebateSession" WHERE "id" = ?`)
+      .get(sessionId) as { currentRound: number; status: string };
+    const usageCount = first.database
+      .prepare(`SELECT COUNT(*) AS count FROM "UsageEvent" WHERE "sessionId" = ? AND "roundNumber" = 1`)
+      .get(sessionId) as { count: number };
+    assert.equal(session.currentRound, 1);
+    assert.equal(session.status, "paused");
+    assert.equal(usageCount.count, 1);
+
+    const replay = second.claim({
+      sessionId,
+      roundNumber: 1,
+      requestId: "request:legacy-orphan-retry",
+      userId,
+      providerId: "mock",
+    });
+    assert.equal(replay.outcome, "completed");
+    assert.equal(replay.execution.id, reconciled.execution.id);
+    const replayUsageCount = first.database
+      .prepare(`SELECT COUNT(*) AS count FROM "UsageEvent" WHERE "sessionId" = ? AND "roundNumber" = 1`)
+      .get(sessionId) as { count: number };
+    assert.equal(replayUsageCount.count, 1);
+  });
+
+  it("keeps an old idempotency key bound to its original round after later completion", () => {
+    const sessionId = randomUUID();
+    const userId = randomUUID();
+    seedSession(first, sessionId, userId);
+
+    const completeRound = (roundNumber: number, requestId: string) => {
+      const claim = first.claim({ sessionId, roundNumber, requestId });
+      const ownerToken = claim.ownerToken as string;
+      first.checkpoint({
+        executionId: claim.execution.id,
+        ownerToken,
+        stage: "speaker_a_completed",
+        speakerAContent: `A${roundNumber}`,
+        speakerAUsage: usage,
+      });
+      first.checkpoint({
+        executionId: claim.execution.id,
+        ownerToken,
+        stage: "speaker_b_completed",
+        speakerBContent: `B${roundNumber}`,
+        speakerBUsage: usage,
+      });
+      first.checkpoint({
+        executionId: claim.execution.id,
+        ownerToken,
+        stage: "judge_completed",
+        judgeResult: { ...judgeResult, round: roundNumber },
+        judgeUsage: usage,
+      });
+      return first.complete({
+        executionId: claim.execution.id,
+        ownerToken,
+        userId,
+        providerId: "mock",
+        sessionStatus: "running",
+        winner: null,
+        speakerAContent: `A${roundNumber}`,
+        speakerBContent: `B${roundNumber}`,
+        judgeResult: { ...judgeResult, round: roundNumber },
+        usage,
+      });
+    };
+
+    const firstRound = completeRound(1, "request:old-key-original");
+    completeRound(2, "request:later-round");
+    const replay = second.claim({
+      sessionId,
+      roundNumber: 3,
+      requestId: "request:old-key-original",
+    });
+    assert.equal(replay.outcome, "completed");
+    assert.equal(replay.execution.roundId, firstRound.roundId);
   });
 });

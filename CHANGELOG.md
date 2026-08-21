@@ -19,5 +19,6 @@ All notable changes to Debate Theater are documented here.
 
 ### Fixed
 
-- Prevented duplicate model spend and duplicate rounds from concurrent tabs or app processes.
+- Prevented duplicate durable rounds and duplicate checkpointed model spend from concurrent tabs or app processes; a provider response that races a process crash can still require provider-level idempotency.
 - Prevented an expired lease owner from pausing a round already resumed by another process.
+- Preserved newer user pause/stop/winner controls during completion and reconciled legacy orphan rounds without duplicate usage events.

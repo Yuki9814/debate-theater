@@ -1,5 +1,5 @@
 import { requireCurrentUser } from "@/lib/auth/session";
-import { runNextRound } from "@/lib/debate/engine";
+import { getSession, runNextRoundExecution } from "@/lib/debate/engine";
 import { resolveRoundRequestId } from "@/lib/debate/idempotency";
 import { buildRoundCompletionEvents, sseEvent } from "@/lib/debate/stream-events";
 import { AppError } from "@/lib/errors";
@@ -29,19 +29,32 @@ export async function POST(request: Request, context: RouteContext) {
         const encoder = new TextEncoder();
         const send = (name: Parameters<typeof sseEvent>[0], data: unknown) => controller.enqueue(encoder.encode(sseEvent(name, data)));
         try {
-          const session = await runNextRound(sessionId, user.id, {
+          const result = await runNextRoundExecution(sessionId, user.id, {
             requestId,
             onProgress(event) {
               send(event.name, event.data);
             },
           });
-          const latestRound = session.rounds.at(-1);
-          for (const item of buildRoundCompletionEvents(session, latestRound)) {
+          const latestRound = result.roundId
+            ? result.session.rounds.find((round) => round.id === result.roundId)
+            : result.roundNumber
+              ? result.session.rounds.find((round) => round.roundNumber === result.roundNumber)
+              : undefined;
+          for (const item of buildRoundCompletionEvents(result.session, latestRound)) {
             if (["usage-delta", "session", "done"].includes(item.name)) {
               send(item.name, item.data);
             }
           }
         } catch (error) {
+          // The worker pauses failed rounds when it still owns the lease. Send
+          // the newest session before event:error so clients can recover the
+          // durable state even though the stream has already been established.
+          try {
+            const latest = await getSession(sessionId, user.id);
+            if (latest) send("session", { session: latest });
+          } catch {
+            // Preserve the original execution error if the recovery read fails.
+          }
           send("error", {
             error: error instanceof AppError ? error.message : "回合生成失败，请稍后重试。",
             code: error instanceof AppError ? error.code : "ROUND_EXECUTION_FAILED",

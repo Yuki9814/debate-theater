@@ -152,6 +152,7 @@ export type DebateSessionDTO = {
   judgeConfidence: number;
   outputMode: OutputMode | string;
   currentRound: number;
+  controlVersion?: number;
   winner: string | null;
   createdAt: string;
   updatedAt: string;

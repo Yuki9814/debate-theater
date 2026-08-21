@@ -3,10 +3,11 @@ import { createProvider, decryptApiKey } from "../ai/index.ts";
 import { calculateUsage, aggregateUsage, type UsageResult } from "../ai/usage.ts";
 import { assertCanRunRound } from "../billing/service.ts";
 import { roundExecutionStore } from "../db/round-executions.ts";
-import { ensureDatabase, prisma } from "../db/prisma.ts";
+import { ensureDatabase, prisma, setDebateSessionRunningIfControlVersion } from "../db/prisma.ts";
 import { AppError } from "../errors.ts";
 import {
   type DebateRoundDTO,
+  type DebateSessionDTO,
   type DebateSetupInput,
   type JudgeResult,
   debateSetupSchema,
@@ -456,6 +457,25 @@ type RunNextRoundOptions = {
   onProgress?: (event: RoundProgressEvent) => void | Promise<void>;
 };
 
+export type RunNextRoundExecutionResult = {
+  session: DebateSessionDTO;
+  roundId: string | null;
+  roundNumber: number | null;
+  executionId: string | null;
+};
+
+function withExecutionMetadata(
+  session: DebateSessionDTO,
+  execution?: { id: string; roundId: string | null; roundNumber: number },
+): RunNextRoundExecutionResult {
+  return {
+    session,
+    roundId: execution?.roundId ?? null,
+    roundNumber: execution?.roundNumber ?? null,
+    executionId: execution?.id ?? null,
+  };
+}
+
 async function emitProgress(options: RunNextRoundOptions, event: RoundProgressEvent): Promise<void> {
   try {
     await options.onProgress?.(event);
@@ -474,12 +494,14 @@ function failureRecord(error: unknown): { errorCode: string; errorMessage: strin
   };
 }
 
-export async function runNextRound(
+export async function runNextRoundExecution(
   sessionId: string,
   userId?: string,
   options: RunNextRoundOptions = {},
-) {
+): Promise<RunNextRoundExecutionResult> {
   await ensureDatabase();
+  const requestId = options.requestId ?? randomUUID();
+  const store = roundExecutionStore();
   const session = await prisma.debateSession.findUnique({
     where: { id: sessionId },
     include: sessionInclude,
@@ -487,8 +509,17 @@ export async function runNextRound(
 
   if (!session) throw new Error("未找到该辩论场。");
   if (userId && session.userId !== userId) throw new Error("未找到该辩论场。");
+
+  // A replay can arrive after later rounds have advanced the session (or even
+  // after it ended). Resolve the original execution before applying the
+  // current-session terminal guard.
+  const replay = store.getByRequest(sessionId, requestId);
+  if (replay?.status === "completed" && replay.roundId) {
+    const fresh = await getSession(sessionId, userId);
+    return withExecutionMetadata(fresh ?? serializeSession(session), replay);
+  }
   if (session.status === "ended" || session.status === "stopped") {
-    return serializeSession(session);
+    return withExecutionMetadata(serializeSession(session));
   }
 
   const participants = session.participants;
@@ -519,14 +550,12 @@ export async function runNextRound(
       data: { status: "ended", winner: "达到轮数上限" },
       include: sessionInclude,
     });
-    return serializeSession(updated);
+    return withExecutionMetadata(serializeSession(updated));
   }
-  const requestId = options.requestId ?? randomUUID();
-  const store = roundExecutionStore();
-  const claim = store.claim({ sessionId, roundNumber, requestId });
+  const claim = store.claim({ sessionId, roundNumber, requestId, userId: session.userId, providerId: "mixed" });
   if (claim.outcome === "completed") {
     const fresh = await getSession(sessionId, userId);
-    return fresh ?? serializeSession(session);
+    return withExecutionMetadata(fresh ?? serializeSession(session), claim.execution);
   }
   if (claim.outcome === "in_progress" || !claim.ownerToken) {
     throw new AppError(
@@ -540,11 +569,17 @@ export async function runNextRound(
   let execution = claim.execution;
   try {
     await assertCanRunRound(session.userId);
-    await prisma.debateSession.update({
-      where: { id: sessionId },
-      data: { status: "running" },
-      include: sessionInclude,
-    });
+    const started = await setDebateSessionRunningIfControlVersion(
+      sessionId,
+      execution.controlVersion,
+    );
+    if (!started) {
+      throw new AppError(
+        "辩场状态已由操作者更新，本轮未启动，请按最新状态继续。",
+        409,
+        "ROUND_CONTROL_CHANGED",
+      );
+    }
 
     // 1. Speaker A. A completed checkpoint is reused after a safe retry.
     await emitProgress(options, {
@@ -703,7 +738,7 @@ export async function runNextRound(
       roundNumber % session.pauseEveryRounds === 0 &&
       roundNumber < session.maxRounds;
 
-    store.complete({
+    const completion = store.complete({
       executionId: execution.id,
       ownerToken,
       userId: session.userId,
@@ -717,7 +752,11 @@ export async function runNextRound(
     });
     const updated = await getSession(sessionId, userId);
     if (!updated) throw new Error("Completed round could not be reloaded");
-    return updated;
+    return withExecutionMetadata(updated, {
+      id: execution.id,
+      roundId: completion.roundId,
+      roundNumber,
+    });
   } catch (error) {
     try {
       store.fail({
@@ -731,6 +770,16 @@ export async function runNextRound(
     }
     throw error;
   }
+}
+
+/** Compatibility wrapper for callers that only need the updated session. */
+export async function runNextRound(
+  sessionId: string,
+  userId?: string,
+  options: RunNextRoundOptions = {},
+): Promise<DebateSessionDTO> {
+  const result = await runNextRoundExecution(sessionId, userId, options);
+  return result.session;
 }
 
 
@@ -757,6 +806,7 @@ export async function updateSessionStatus(params: {
       status: params.status,
       winner: params.winner,
       maxRounds: params.maxRounds,
+      bumpControlVersion: true,
     },
     include: sessionInclude,
   });

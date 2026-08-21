@@ -1,5 +1,5 @@
 import { requireCurrentUser } from "@/lib/auth/session";
-import { runNextRound } from "@/lib/debate/engine";
+import { runNextRoundExecution } from "@/lib/debate/engine";
 import { resolveRoundRequestId } from "@/lib/debate/idempotency";
 import { errorResponse } from "@/lib/errors";
 import { requireMutationSecurity } from "@/lib/security/mutation";
@@ -21,9 +21,14 @@ export async function POST(request: Request, context: RouteContext) {
     requireMutationSecurity(request);
     const user = await requireCurrentUser();
     const requestId = resolveRoundRequestId(request);
-    const session = await runNextRound(sessionId, user.id, { requestId });
+    const result = await runNextRoundExecution(sessionId, user.id, { requestId });
     return Response.json(
-      { session, requestId },
+      {
+        session: result.session,
+        requestId,
+        roundId: result.roundId,
+        roundNumber: result.roundNumber,
+      },
       { headers: { "Idempotency-Key": requestId } },
     );
   } catch (error) {

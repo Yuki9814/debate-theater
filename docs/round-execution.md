@@ -15,7 +15,7 @@ The engine persists these checkpoints:
 3. judge result and usage;
 4. atomic round completion.
 
-After a provider or network failure, the lease is released and the session pauses. A retry starts at the first incomplete stage. A completed request is replayed by reloading the already-advanced session.
+After a provider or network failure, the lease is released and the session pauses. A retry starts at the first incomplete stage. A completed request is replayed by reloading the already-advanced session. The response also carries the execution's `roundId`, so an older key stays bound to its original round after later rounds exist.
 
 ## Atomic completion
 
@@ -24,9 +24,12 @@ One transaction writes the debate round, both judge scores, one usage event, the
 ## Failure and recovery boundaries
 
 - An SSE disconnect does not cancel or roll back durable server work.
+- Once an SSE response has been created, failures are delivered as an `event: error` frame. The server sends the newest paused session first when it can reload it, so the client can render durable recovery state.
 - If a worker disappears, another request can resume after the lease expires.
 - A stale worker cannot checkpoint after another worker acquires its lease.
 - Checkpoints prevent repeated calls after a confirmed stage write. A process crash between a provider response and its checkpoint can still repeat that one provider call; provider-level idempotency should be added when an upstream supports it.
+- Session control updates carry a monotonic control version. Completion uses a compare-and-set against that version, so a newer pause, stop, or forced winner is never overwritten; only the round and usage accounting are advanced.
+- A round found without its execution record is treated as a legacy orphan: it is bound once, usage is filled once, and a non-terminal session is paused for safe review.
 - SQLite coordination requires every process to use the same database file with working file locks. Separate hosts or independent volumes need a shared transactional database implementation.
 
 ## Verification
