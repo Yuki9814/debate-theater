@@ -77,6 +77,7 @@ model DebateSession {
   user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   participants DebateParticipant[]
   rounds       DebateRound[]
+  roundExecutions DebateRoundExecution[]
   sourceCards  ResearchSourceCard[]
 }
 
@@ -126,6 +127,46 @@ model JudgeScore {
   comment         String?
 
   round DebateRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+}
+
+model DebateRoundExecution {
+  id                  String   @id @default(cuid())
+  sessionId           String
+  roundNumber         Int
+  primaryRequestId    String
+  status              String
+  leaseOwner          String?
+  leaseExpiresAt      DateTime?
+  speakerAContent     String?
+  speakerAUsageJson   String?
+  speakerBContent     String?
+  speakerBUsageJson   String?
+  judgeResultJson     String?
+  judgeUsageJson      String?
+  roundId             String?
+  errorCode           String?
+  errorMessage        String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  completedAt         DateTime?
+
+  session  DebateSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  requests DebateRoundRequest[]
+
+  @@unique([sessionId, roundNumber])
+  @@index([status, leaseExpiresAt])
+}
+
+model DebateRoundRequest {
+  executionId String
+  sessionId   String
+  requestId   String
+  createdAt   DateTime @default(now())
+
+  execution DebateRoundExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, requestId])
+  @@index([executionId])
 }
 
 model Persona {

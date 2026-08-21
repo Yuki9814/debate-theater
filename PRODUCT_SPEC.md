@@ -16,7 +16,8 @@ Debate Theater is a premium AI debate web app where a user enters a topic, two A
 8. The app supports up to three AI API providers through provider adapters.
 9. API keys stay server-side and are never exposed in the browser.
 10. Mock mode allows the UI to run without real API keys.
-11. The UI must feel polished, modern, beautiful, and app-like.
+11. Each logical round has one durable execution record. Retries reuse completed stages and commit round, scores, usage, and session state atomically.
+12. The UI must feel polished, modern, beautiful, and app-like.
 
 ## Main Modules
 
@@ -132,7 +133,8 @@ Default lose condition:
 - Framer Motion
 - Prisma
 - SQLite for local MVP
-- Simulated streaming
+- Execution-stage SSE streaming
+- Database-backed idempotency, leases, and stage checkpoints
 - OpenAI provider adapter placeholder
 - Mock AI provider
 

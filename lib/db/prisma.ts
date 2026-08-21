@@ -553,6 +553,8 @@ export async function ensureDatabase() {
   if (schemaReady) return;
   const database = getDb();
 
+  database.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+
   database.exec(`
     CREATE TABLE IF NOT EXISTS "User" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -813,6 +815,9 @@ export const prisma = {
           getDb().prepare(`DELETE FROM "JudgeScore" WHERE "roundId" = ?`).run(String(round.id));
         }
         getDb().prepare(`DELETE FROM "ResearchSourceCard" WHERE "sessionId" = ?`).run(sessionId);
+        if (hasColumn("DebateRoundExecution", "sessionId")) {
+          getDb().prepare(`DELETE FROM "DebateRoundExecution" WHERE "sessionId" = ?`).run(sessionId);
+        }
         getDb().prepare(`DELETE FROM "DebateRound" WHERE "sessionId" = ?`).run(sessionId);
         getDb().prepare(`DELETE FROM "DebateParticipant" WHERE "sessionId" = ?`).run(sessionId);
       }

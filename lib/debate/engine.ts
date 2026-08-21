@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { createProvider, decryptApiKey } from "../ai/index.ts";
-import { calculateUsage, aggregateUsage } from "../ai/usage.ts";
-import { assertCanRunRound, recordRoundUsage } from "../billing/service.ts";
+import { calculateUsage, aggregateUsage, type UsageResult } from "../ai/usage.ts";
+import { assertCanRunRound } from "../billing/service.ts";
+import { roundExecutionStore } from "../db/round-executions.ts";
 import { ensureDatabase, prisma } from "../db/prisma.ts";
+import { AppError } from "../errors.ts";
 import {
   type DebateRoundDTO,
   type DebateSetupInput,
@@ -13,13 +16,6 @@ import { serializeSession } from "./serializers.ts";
 import { buildJudgePrompt, normalizeJudgeResult } from "../judge/rules.ts";
 import { getPersonaPreset, type PersonaPreset } from "../persona/presets.ts";
 import { collectNeutralSourceCards, type SourceCard } from "../research/source-cards.ts";
-
-// Module-scoped in-process guard to serialize round generation per session.
-// Prevents duplicate AI provider calls and round INSERT races when a client
-// issues concurrent "next round" requests (double-click, slow networks, tabs).
-// Complements the client-side lockRef in debate-room.tsx. Low-risk addition
-// that preserves all single-request behavior and existing state transitions.
-const pendingRoundGenerations = new Set<string>();
 
 const demoUser = {
   email: "demo@debate-theater.local",
@@ -450,7 +446,39 @@ async function getJudgeEvaluation(params: {
   return { result, usage };
 }
 
-export async function runNextRound(sessionId: string, userId?: string) {
+export type RoundProgressEvent = {
+  name: "speaker-a-start" | "speaker-a-complete" | "speaker-b-complete" | "judge-complete";
+  data: Record<string, unknown>;
+};
+
+type RunNextRoundOptions = {
+  requestId?: string;
+  onProgress?: (event: RoundProgressEvent) => void | Promise<void>;
+};
+
+async function emitProgress(options: RunNextRoundOptions, event: RoundProgressEvent): Promise<void> {
+  try {
+    await options.onProgress?.(event);
+  } catch {
+    // A disconnected SSE client must not roll back a durable round execution.
+  }
+}
+
+function failureRecord(error: unknown): { errorCode: string; errorMessage: string } {
+  if (error instanceof AppError) {
+    return { errorCode: error.code, errorMessage: error.message };
+  }
+  return {
+    errorCode: "ROUND_EXECUTION_FAILED",
+    errorMessage: error instanceof Error ? error.name : "Unknown round execution error",
+  };
+}
+
+export async function runNextRound(
+  sessionId: string,
+  userId?: string,
+  options: RunNextRoundOptions = {},
+) {
   await ensureDatabase();
   const session = await prisma.debateSession.findUnique({
     where: { id: sessionId },
@@ -493,136 +521,173 @@ export async function runNextRound(sessionId: string, userId?: string) {
     });
     return serializeSession(updated);
   }
-
-  // Concurrency guard (see pendingRoundGenerations declaration above).
-  // Only the first caller for this session proceeds past this point; others
-  // short-circuit and return the latest persisted state. This eliminates
-  // duplicate AI spend and the previous UNIQUE constraint 500s on races.
-  if (pendingRoundGenerations.has(sessionId)) {
-    const fresh = await getSession(sessionId);
+  const requestId = options.requestId ?? randomUUID();
+  const store = roundExecutionStore();
+  const claim = store.claim({ sessionId, roundNumber, requestId });
+  if (claim.outcome === "completed") {
+    const fresh = await getSession(sessionId, userId);
     return fresh ?? serializeSession(session);
   }
-  pendingRoundGenerations.add(sessionId);
+  if (claim.outcome === "in_progress" || !claim.ownerToken) {
+    throw new AppError(
+      "该回合正在另一个请求中生成，请等待当前请求完成后再试。",
+      409,
+      "ROUND_ALREADY_IN_PROGRESS",
+    );
+  }
 
+  const ownerToken = claim.ownerToken;
+  let execution = claim.execution;
   try {
     await assertCanRunRound(session.userId);
+    await prisma.debateSession.update({
+      where: { id: sessionId },
+      data: { status: "running" },
+      include: sessionInclude,
+    });
 
-    // 1. Speaker A
-    const { content: speakerAContent, usage: usageA } = await getSpeakerContent({
-      userId: session.userId,
-      side: "A",
-      providerId: debaterA.modelProviderId,
-      modelName: debaterA.modelName,
-      systemPrompt: debaterA.systemPrompt,
-      userPrompt: `第 ${roundNumber} 轮：先提出本方最强论点。`,
-      topic: session.topic,
-      stance: debaterA.stance,
-      opponentStance: debaterB.stance,
-      round: roundNumber,
-      personaName: personaLabel(personaA),
-      mode: session.mode ?? "free",
+    // 1. Speaker A. A completed checkpoint is reused after a safe retry.
+    await emitProgress(options, {
+      name: "speaker-a-start",
+      data: { round: roundNumber, message: "甲方席开始陈词。" },
+    });
+    let speakerAContent = execution.speakerAContent;
+    let usageA: UsageResult | null = execution.speakerAUsage;
+    if (!speakerAContent || !usageA) {
+      const generated = await getSpeakerContent({
+        userId: session.userId,
+        side: "A",
+        providerId: debaterA.modelProviderId,
+        modelName: debaterA.modelName,
+        systemPrompt: debaterA.systemPrompt,
+        userPrompt: `第 ${roundNumber} 轮：先提出本方最强论点。`,
+        topic: session.topic,
+        stance: debaterA.stance,
+        opponentStance: debaterB.stance,
+        round: roundNumber,
+        personaName: personaLabel(personaA),
+        mode: session.mode ?? "free",
+      });
+      speakerAContent = generated.content;
+      usageA = generated.usage;
+      execution = store.checkpoint({
+        executionId: execution.id,
+        ownerToken,
+        stage: "speaker_a_completed",
+        speakerAContent,
+        speakerAUsage: usageA,
+      });
+    }
+    await emitProgress(options, {
+      name: "speaker-a-complete",
+      data: { round: roundNumber, content: speakerAContent },
     });
 
     // 2. Speaker B
-    const { content: speakerBContent, usage: usageB } = await getSpeakerContent({
-      userId: session.userId,
-      side: "B",
-      providerId: debaterB.modelProviderId,
-      modelName: debaterB.modelName,
-      systemPrompt: debaterB.systemPrompt,
-      userPrompt: [
-        `第 ${roundNumber} 轮：反驳甲方，并推进乙方反向论证。`,
-        `甲方本轮发言：${speakerAContent}`,
-      ].join("\n"),
-      topic: session.topic,
-      stance: debaterB.stance,
-      opponentStance: debaterA.stance,
-      round: roundNumber,
-      personaName: personaLabel(personaB),
-      mode: session.mode ?? "free",
+    let speakerBContent = execution.speakerBContent;
+    let usageB: UsageResult | null = execution.speakerBUsage;
+    if (!speakerBContent || !usageB) {
+      const generated = await getSpeakerContent({
+        userId: session.userId,
+        side: "B",
+        providerId: debaterB.modelProviderId,
+        modelName: debaterB.modelName,
+        systemPrompt: debaterB.systemPrompt,
+        userPrompt: [
+          `第 ${roundNumber} 轮：反驳甲方，并推进乙方反向论证。`,
+          `甲方本轮发言：${speakerAContent}`,
+        ].join("\n"),
+        topic: session.topic,
+        stance: debaterB.stance,
+        opponentStance: debaterA.stance,
+        round: roundNumber,
+        personaName: personaLabel(personaB),
+        mode: session.mode ?? "free",
+      });
+      speakerBContent = generated.content;
+      usageB = generated.usage;
+      execution = store.checkpoint({
+        executionId: execution.id,
+        ownerToken,
+        stage: "speaker_b_completed",
+        speakerBContent,
+        speakerBUsage: usageB,
+      });
+    }
+    await emitProgress(options, {
+      name: "speaker-b-complete",
+      data: { round: roundNumber, content: speakerBContent },
     });
 
     // 3. Judge
-    const { result: judgeResult, usage: usageJudge } = await getJudgeEvaluation({
-      userId: session.userId,
-      providerId: judge.modelProviderId,
-      modelName: judge.modelName,
-      systemPrompt: judge.systemPrompt,
-      mode: session.mode ?? "free",
-      topic: session.topic,
-      round: roundNumber,
-      stanceA: debaterA.stance,
-      stanceB: debaterB.stance,
-      personaA: personaLabel(personaA),
-      personaB: personaLabel(personaB),
-      sourceCards,
-      speakerAContent,
-      speakerBContent,
+    let judgeResult = execution.judgeResult;
+    let usageJudge: UsageResult | null = execution.judgeUsage;
+    if (!judgeResult || !usageJudge) {
+      const generated = await getJudgeEvaluation({
+        userId: session.userId,
+        providerId: judge.modelProviderId,
+        modelName: judge.modelName,
+        systemPrompt: judge.systemPrompt,
+        mode: session.mode ?? "free",
+        topic: session.topic,
+        round: roundNumber,
+        stanceA: debaterA.stance,
+        stanceB: debaterB.stance,
+        personaA: personaLabel(personaA),
+        personaB: personaLabel(personaB),
+        sourceCards,
+        speakerAContent,
+        speakerBContent,
+      });
+      judgeResult = generated.result;
+      usageJudge = generated.usage;
+      execution = store.checkpoint({
+        executionId: execution.id,
+        ownerToken,
+        stage: "judge_completed",
+        judgeResult,
+        judgeUsage: usageJudge,
+      });
+    }
+    await emitProgress(options, {
+      name: "judge-complete",
+      data: {
+        round: roundNumber,
+        summary: judgeResult.summary,
+        scores: {
+          A: judgeResult.scores.A.total,
+          B: judgeResult.scores.B.total,
+        },
+        confidence: judgeResult.confidence,
+      },
     });
 
     const totalUsage = aggregateUsage([usageA, usageB, usageJudge]);
-
-    const createdRound = await prisma.debateRound.create({
-      data: {
-        sessionId,
-        roundNumber,
-        speakerAContent,
-        speakerBContent,
-        judgeSummary: judgeResult.summary,
-        judgeComment: judgeResult.judge_comment,
-        confidence: judgeResult.confidence,
-        inputTokens: totalUsage.inputTokens,
-        outputTokens: totalUsage.outputTokens,
-        estimatedCostUsd: totalUsage.estimatedCostUsd,
-        scores: {
-          create: [
-            {
-              side: "A",
-              logic: judgeResult.scores.A.logic,
-              evidence: judgeResult.scores.A.evidence,
-              rebuttal: judgeResult.scores.A.rebuttal,
-              clarity: judgeResult.scores.A.clarity,
-              personaFidelity: judgeResult.scores.A.persona_fidelity,
-              total: judgeResult.scores.A.total,
-              comment: judgeResult.summary,
-            },
-            {
-              side: "B",
-              logic: judgeResult.scores.B.logic,
-              evidence: judgeResult.scores.B.evidence,
-              rebuttal: judgeResult.scores.B.rebuttal,
-              clarity: judgeResult.scores.B.clarity,
-              personaFidelity: judgeResult.scores.B.persona_fidelity,
-              total: judgeResult.scores.B.total,
-              comment: judgeResult.summary,
-            },
-          ],
-        },
-      },
-      include: {
-        scores: {
-          orderBy: { side: "asc" },
-        },
-      },
-    });
-
-    await recordRoundUsage({
-      userId: session.userId,
-      sessionId,
-      providerId: "mixed",
+    const provisionalRound: DebateRoundDTO = {
+      id: `pending-${execution.id}`,
       roundNumber,
+      speakerAContent,
+      speakerBContent,
+      judgeSummary: judgeResult.summary,
+      judgeComment: judgeResult.judge_comment,
+      confidence: judgeResult.confidence,
       inputTokens: totalUsage.inputTokens,
       outputTokens: totalUsage.outputTokens,
       estimatedCostUsd: totalUsage.estimatedCostUsd,
-    });
-
-    const nextRounds = [
-      ...serializeSession(session).rounds,
-      {
-        ...createdRound,
-        createdAt: createdRound.createdAt.toISOString(),
-      },
-    ];
+      createdAt: new Date().toISOString(),
+      scores: (["A", "B"] as const).map((side) => ({
+        id: `pending-${side}-${execution.id}`,
+        side,
+        logic: judgeResult.scores[side].logic,
+        evidence: judgeResult.scores[side].evidence,
+        rebuttal: judgeResult.scores[side].rebuttal,
+        clarity: judgeResult.scores[side].clarity,
+        personaFidelity: judgeResult.scores[side].persona_fidelity,
+        total: judgeResult.scores[side].total,
+        comment: judgeResult.summary,
+      })),
+    };
+    const nextRounds = [...serializeSession(session).rounds, provisionalRound];
 
     const endState = evaluateEndState({
       rounds: nextRounds,
@@ -638,19 +703,33 @@ export async function runNextRound(sessionId: string, userId?: string) {
       roundNumber % session.pauseEveryRounds === 0 &&
       roundNumber < session.maxRounds;
 
-    const updated = await prisma.debateSession.update({
-      where: { id: sessionId },
-      data: {
-        currentRound: roundNumber,
-        status: shouldPause ? "awaiting_confirmation" : endState.status,
-        winner: endState.winner,
-      },
-      include: sessionInclude,
+    store.complete({
+      executionId: execution.id,
+      ownerToken,
+      userId: session.userId,
+      providerId: "mixed",
+      sessionStatus: shouldPause ? "awaiting_confirmation" : endState.status,
+      winner: endState.winner,
+      speakerAContent,
+      speakerBContent,
+      judgeResult,
+      usage: totalUsage,
     });
-
-    return serializeSession(updated);
-  } finally {
-    pendingRoundGenerations.delete(sessionId);
+    const updated = await getSession(sessionId, userId);
+    if (!updated) throw new Error("Completed round could not be reloaded");
+    return updated;
+  } catch (error) {
+    try {
+      store.fail({
+        executionId: execution.id,
+        ownerToken,
+        ...failureRecord(error),
+      });
+    } catch {
+      // Preserve the provider or engine failure as the causal error. A later
+      // request can still recover the expired durable execution lease.
+    }
+    throw error;
   }
 }
 

@@ -1,6 +1,8 @@
 import { requireCurrentUser } from "@/lib/auth/session";
-import { runNextRound, updateSessionStatus } from "@/lib/debate/engine";
+import { runNextRound } from "@/lib/debate/engine";
+import { resolveRoundRequestId } from "@/lib/debate/idempotency";
 import { buildRoundCompletionEvents, sseEvent } from "@/lib/debate/stream-events";
+import { AppError } from "@/lib/errors";
 import { errorResponse } from "@/lib/errors";
 import { requireMutationSecurity } from "@/lib/security/mutation";
 import { consumeRateLimit, rateLimitResponse } from "@/lib/security/rate-limit";
@@ -20,22 +22,29 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     requireMutationSecurity(request);
     const user = await requireCurrentUser();
-    await updateSessionStatus({ sessionId, userId: user.id, status: "running" });
+    const requestId = resolveRoundRequestId(request);
 
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
         const send = (name: Parameters<typeof sseEvent>[0], data: unknown) => controller.enqueue(encoder.encode(sseEvent(name, data)));
         try {
-          send("speaker-a-start", { message: "甲方席开始陈词。" });
-          const session = await runNextRound(sessionId, user.id);
+          const session = await runNextRound(sessionId, user.id, {
+            requestId,
+            onProgress(event) {
+              send(event.name, event.data);
+            },
+          });
           const latestRound = session.rounds.at(-1);
           for (const item of buildRoundCompletionEvents(session, latestRound)) {
-            send(item.name, item.data);
+            if (["usage-delta", "session", "done"].includes(item.name)) {
+              send(item.name, item.data);
+            }
           }
-        } catch {
+        } catch (error) {
           send("error", {
-            error: "回合生成失败，请稍后重试。",
+            error: error instanceof AppError ? error.message : "回合生成失败，请稍后重试。",
+            code: error instanceof AppError ? error.code : "ROUND_EXECUTION_FAILED",
           });
         } finally {
           controller.close();
@@ -48,6 +57,7 @@ export async function POST(request: Request, context: RouteContext) {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
+        "Idempotency-Key": requestId,
       },
     });
   } catch (error) {
