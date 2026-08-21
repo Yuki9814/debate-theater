@@ -2,6 +2,8 @@
 
 Premium AI debate web app built with Next.js, TypeScript, Tailwind CSS, shadcn-style UI primitives, Framer Motion, Prisma schema modeling, and local SQLite persistence.
 
+Current release: **v0.2.0 — Durable Rounds**.
+
 ## Current Build
 
 - Landing page, dashboard, setup page, debate room, history, and API provider settings.
@@ -15,7 +17,10 @@ Premium AI debate web app built with Next.js, TypeScript, Tailwind CSS, shadcn-s
 - Persona Debate ships with a 30+ preset Chinese-ready persona library and persona fidelity scoring.
 - Hot Topic Debate creates shared source cards through a Tavily-style search adapter with local fallback cards.
 - Historical Companion Mode creates worldline timelines with historical fact, reasonable inference, and fictional branch nodes.
-- Debate rounds can be requested through an SSE endpoint for staged streaming UI updates.
+- Debate rounds use database-backed idempotency keys and renewable execution leases, so two tabs or server processes cannot charge for the same round concurrently.
+- Speaker A, speaker B, and judge results are checkpointed independently. A safe retry resumes from the last durable stage instead of repeating completed model calls.
+- Round, scores, usage, execution state, and session advancement commit in one SQLite transaction.
+- Debate rounds can be requested through an SSE endpoint whose events now reflect the real execution stages rather than a pre-rendered animation.
 - Server-side billing and entitlement boundaries are in place for a profitable launch path.
 - Provider keys are encrypted at rest when `API_KEY_ENCRYPTION_SECRET` is configured.
 - Core backend logic has Node test coverage and a lightweight security scan.
@@ -79,6 +84,7 @@ build.
 
 ## Launch Readiness Docs
 
+- `docs/round-execution.md` documents durable round ownership, retries, recovery, and deployment limits.
 - `docs/evaluation/` contains the Codex, Gemini CLI, and Grok Build scoring rubrics.
 - `docs/billing-readiness.md` documents monetization and subscription boundaries.
 - `docs/security-readiness.md` documents key handling, rate limiting, and production security gaps.
@@ -94,3 +100,5 @@ The build script runs `prisma generate` before `next build`. The app also create
 ## Notes
 
 Prisma 7 uses `prisma.config.ts` for the datasource URL and generates the client into `lib/generated/prisma` during build. The local runtime uses Node's built-in SQLite API to avoid macOS library-validation issues with third-party native database drivers inside the Codex desktop runtime.
+
+SQLite coordinates multiple app processes only when they share the same database file. Multi-host deployments must place that file on storage with correct SQLite locking semantics or replace the execution store with a transactional shared database.

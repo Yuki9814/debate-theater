@@ -70,6 +70,7 @@ model DebateSession {
   judgeConfidence     Float    @default(0.75)
   outputMode          String   @default("theater")
   currentRound        Int      @default(0)
+  controlVersion      Int      @default(0)
   winner              String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -77,6 +78,8 @@ model DebateSession {
   user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   participants DebateParticipant[]
   rounds       DebateRound[]
+  roundExecutions DebateRoundExecution[]
+  roundRequests DebateRoundRequest[]
   sourceCards  ResearchSourceCard[]
 }
 
@@ -109,6 +112,7 @@ model DebateRound {
 
   session DebateSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   scores  JudgeScore[]
+  executions DebateRoundExecution[]
 
   @@unique([sessionId, roundNumber])
 }
@@ -126,6 +130,50 @@ model JudgeScore {
   comment         String?
 
   round DebateRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+}
+
+model DebateRoundExecution {
+  id                  String   @id @default(cuid())
+  sessionId           String
+  roundNumber         Int
+  controlVersion      Int      @default(0)
+  primaryRequestId    String
+  status              String
+  leaseOwner          String?
+  leaseExpiresAt      DateTime?
+  speakerAContent     String?
+  speakerAUsageJson   String?
+  speakerBContent     String?
+  speakerBUsageJson   String?
+  judgeResultJson     String?
+  judgeUsageJson      String?
+  roundId             String?
+  errorCode           String?
+  errorMessage        String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  completedAt         DateTime?
+  round              DebateRound? @relation(fields: [roundId], references: [id], onDelete: SetNull)
+
+  session  DebateSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  requests DebateRoundRequest[]
+
+  @@unique([sessionId, roundNumber])
+  @@index([status, leaseExpiresAt])
+  @@index([roundId])
+}
+
+model DebateRoundRequest {
+  executionId String
+  sessionId   String
+  requestId   String
+  createdAt   DateTime @default(now())
+
+  execution DebateRoundExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  session   DebateSession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, requestId])
+  @@index([executionId])
 }
 
 model Persona {
@@ -229,6 +277,10 @@ model UsageEvent {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, eventType, createdAt])
+  // SQLite runtime installs a partial unique index for debate_round charges;
+  // Prisma schema keeps this as a non-unique lookup index because it cannot
+  // express the eventType predicate.
+  @@index([sessionId, roundNumber, eventType])
 }
 
 model WaitlistLead {

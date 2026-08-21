@@ -62,6 +62,7 @@ type RawSession = {
   judgeConfidence: number;
   outputMode: string;
   currentRound: number;
+  controlVersion?: number;
   winner: string | null;
   createdAt: Date;
   updatedAt: Date;

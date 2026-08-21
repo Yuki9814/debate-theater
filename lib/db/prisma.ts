@@ -54,6 +54,7 @@ type SessionRow = {
   judgeConfidence: number;
   outputMode: string;
   currentRound: number;
+  controlVersion: number;
   winner: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -257,6 +258,10 @@ type DebateSessionUpdateInput = {
   winner?: string | null;
   maxRounds?: number;
   currentRound?: number;
+  /** Internal escape hatch for durable execution updates. */
+  controlVersion?: number;
+  /** User controls must advance the version atomically. */
+  bumpControlVersion?: boolean;
 };
 
 type DebateSessionCreateInput = {
@@ -540,6 +545,7 @@ function mapSession(row: Row): SessionRow {
     judgeConfidence: Number(row.judgeConfidence),
     outputMode: String(row.outputMode),
     currentRound: Number(row.currentRound),
+    controlVersion: Number(row.controlVersion ?? 0),
     winner: row.winner ? String(row.winner) : null,
     createdAt: asDate(row.createdAt),
     updatedAt: asDate(row.updatedAt),
@@ -553,19 +559,22 @@ export async function ensureDatabase() {
   if (schemaReady) return;
   const database = getDb();
 
+  database.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+
   database.exec(`
     CREATE TABLE IF NOT EXISTS "User" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "email" TEXT NOT NULL UNIQUE,
       "name" TEXT,
-      "createdAt" TEXT NOT NULL
+      "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS "AuthSession" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "userId" TEXT NOT NULL,
       "tokenHash" TEXT NOT NULL UNIQUE,
       "expiresAt" TEXT NOT NULL,
-      "createdAt" TEXT NOT NULL
+      "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS "AuthLoginToken" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -574,7 +583,7 @@ export async function ensureDatabase() {
       "tokenHash" TEXT NOT NULL UNIQUE,
       "expiresAt" TEXT NOT NULL,
       "usedAt" TEXT,
-      "createdAt" TEXT NOT NULL
+      "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS "ApiProvider" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -584,8 +593,9 @@ export async function ensureDatabase() {
       "encryptedApiKey" TEXT,
       "defaultModel" TEXT,
       "enabled" INTEGER NOT NULL DEFAULT 1,
-      "createdAt" TEXT NOT NULL,
-      "updatedAt" TEXT NOT NULL
+      "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS "DebateSession" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -600,9 +610,11 @@ export async function ensureDatabase() {
       "judgeConfidence" REAL NOT NULL DEFAULT 0.75,
       "outputMode" TEXT NOT NULL DEFAULT 'theater',
       "currentRound" INTEGER NOT NULL DEFAULT 0,
+      "controlVersion" INTEGER NOT NULL DEFAULT 0,
       "winner" TEXT,
-      "createdAt" TEXT NOT NULL,
-      "updatedAt" TEXT NOT NULL
+      "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS "DebateParticipant" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -612,7 +624,8 @@ export async function ensureDatabase() {
       "personaId" TEXT,
       "modelProviderId" TEXT,
       "modelName" TEXT,
-      "systemPrompt" TEXT NOT NULL
+      "systemPrompt" TEXT NOT NULL,
+      FOREIGN KEY ("sessionId") REFERENCES "DebateSession" ("id") ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS "DebateRound" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -626,8 +639,9 @@ export async function ensureDatabase() {
       "inputTokens" INTEGER NOT NULL DEFAULT 0,
       "outputTokens" INTEGER NOT NULL DEFAULT 0,
       "estimatedCostUsd" REAL NOT NULL DEFAULT 0,
-      "createdAt" TEXT NOT NULL,
-      UNIQUE ("sessionId", "roundNumber")
+      "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE ("sessionId", "roundNumber"),
+      FOREIGN KEY ("sessionId") REFERENCES "DebateSession" ("id") ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS "JudgeScore" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -639,7 +653,8 @@ export async function ensureDatabase() {
       "clarity" INTEGER NOT NULL,
       "personaFidelity" INTEGER NOT NULL,
       "total" INTEGER NOT NULL,
-      "comment" TEXT
+      "comment" TEXT,
+      FOREIGN KEY ("roundId") REFERENCES "DebateRound" ("id") ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS "Persona" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -654,7 +669,8 @@ export async function ensureDatabase() {
       "blindSpots" TEXT NOT NULL,
       "avatarUrl" TEXT,
       "isSystemPreset" INTEGER NOT NULL DEFAULT 0,
-      "createdByUserId" TEXT
+      "createdByUserId" TEXT,
+      FOREIGN KEY ("createdByUserId") REFERENCES "User" ("id") ON DELETE SET NULL
     );
     CREATE TABLE IF NOT EXISTS "ResearchSourceCard" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -666,7 +682,8 @@ export async function ensureDatabase() {
       "summary" TEXT NOT NULL,
       "reliabilityNote" TEXT NOT NULL,
       "citationCount" INTEGER NOT NULL DEFAULT 0,
-      "createdAt" TEXT NOT NULL
+      "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("sessionId") REFERENCES "DebateSession" ("id") ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS "CompanionSession" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -676,8 +693,9 @@ export async function ensureDatabase() {
       "companionName" TEXT NOT NULL,
       "goal" TEXT NOT NULL,
       "status" TEXT NOT NULL DEFAULT 'active',
-      "createdAt" TEXT NOT NULL,
-      "updatedAt" TEXT NOT NULL
+      "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS "CompanionNode" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -687,7 +705,8 @@ export async function ensureDatabase() {
       "title" TEXT NOT NULL,
       "body" TEXT NOT NULL,
       "riskLevel" TEXT NOT NULL,
-      "createdAt" TEXT NOT NULL
+      "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("companionSessionId") REFERENCES "CompanionSession" ("id") ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS "BillingSubscription" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -697,14 +716,15 @@ export async function ensureDatabase() {
       "stripeCustomerId" TEXT,
       "stripeSubscriptionId" TEXT,
       "currentPeriodEnd" TEXT,
-      "createdAt" TEXT NOT NULL,
-      "updatedAt" TEXT NOT NULL
+      "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS "BillingWebhookEvent" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "stripeEventId" TEXT NOT NULL UNIQUE,
       "eventType" TEXT NOT NULL,
-      "processedAt" TEXT NOT NULL
+      "processedAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS "UsageEvent" (
       "id" TEXT NOT NULL PRIMARY KEY,
@@ -716,14 +736,15 @@ export async function ensureDatabase() {
       "inputTokens" INTEGER NOT NULL DEFAULT 0,
       "outputTokens" INTEGER NOT NULL DEFAULT 0,
       "estimatedCostUsd" REAL NOT NULL DEFAULT 0,
-      "createdAt" TEXT NOT NULL
+      "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS "WaitlistLead" (
       "id" TEXT NOT NULL PRIMARY KEY,
       "moduleId" TEXT NOT NULL,
       "email" TEXT NOT NULL,
       "useCase" TEXT NOT NULL,
-      "createdAt" TEXT NOT NULL
+      "createdAt" TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS "WaitlistLead_module_created_idx"
       ON "WaitlistLead" ("moduleId", "createdAt");
@@ -740,12 +761,98 @@ export async function ensureDatabase() {
   ensureColumn("DebateRound", "inputTokens", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("DebateRound", "outputTokens", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("DebateRound", "estimatedCostUsd", "REAL NOT NULL DEFAULT 0");
+  ensureColumn("DebateSession", "controlVersion", "INTEGER NOT NULL DEFAULT 0");
+
+  // v0.1 could race a reconciliation worker and write the same round usage
+  // more than once. Keep the deterministic oldest row before installing the
+  // database guard required by all subsequent runtimes. Non-round usage is
+  // deliberately left untouched: only debate-round charges are unique per
+  // session and round.
+  database.exec(`
+    BEGIN IMMEDIATE;
+    DELETE FROM "UsageEvent"
+    WHERE rowid IN (
+      SELECT duplicate.rowid
+      FROM "UsageEvent" AS duplicate
+      WHERE duplicate."eventType" = 'debate_round'
+        AND duplicate."sessionId" IS NOT NULL
+        AND duplicate."roundNumber" IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM "UsageEvent" AS earlier
+          WHERE earlier."eventType" = 'debate_round'
+            AND earlier."sessionId" = duplicate."sessionId"
+            AND earlier."roundNumber" = duplicate."roundNumber"
+            AND (
+              earlier."createdAt" < duplicate."createdAt"
+              OR (
+                earlier."createdAt" = duplicate."createdAt"
+                AND earlier.rowid < duplicate.rowid
+              )
+            )
+        )
+    );
+    DROP INDEX IF EXISTS "UsageEvent_session_round_type_unique_idx";
+    DROP INDEX IF EXISTS "UsageEvent_sessionId_roundNumber_eventType_key";
+    CREATE UNIQUE INDEX IF NOT EXISTS "UsageEvent_debate_round_session_round_unique_idx"
+      ON "UsageEvent" ("sessionId", "roundNumber")
+      WHERE "eventType" = 'debate_round';
+    CREATE TRIGGER IF NOT EXISTS "UsageEvent_debate_round_requires_complete_round"
+    BEFORE INSERT ON "UsageEvent"
+    WHEN NEW."eventType" = 'debate_round'
+      AND (
+        NEW."sessionId" IS NULL
+        OR NEW."roundNumber" IS NULL
+        OR NOT EXISTS (
+          SELECT 1
+          FROM "DebateRound" AS round
+          WHERE round."sessionId" = NEW."sessionId"
+            AND round."roundNumber" = NEW."roundNumber"
+            AND (
+              SELECT COUNT(*) FROM "JudgeScore" AS score
+              WHERE score."roundId" = round."id"
+            ) = 2
+            AND (
+              SELECT COUNT(*) FROM "JudgeScore" AS score
+              WHERE score."roundId" = round."id" AND score."side" = 'A'
+            ) = 1
+            AND (
+              SELECT COUNT(*) FROM "JudgeScore" AS score
+              WHERE score."roundId" = round."id" AND score."side" = 'B'
+            ) = 1
+        )
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'debate round usage requires complete judge scores');
+    END;
+    COMMIT;
+  `);
   schemaReady = true;
 }
 
 function getSession(idValue: string): SessionRow | null {
   const row = getDb().prepare(`SELECT * FROM "DebateSession" WHERE "id" = ?`).get(idValue) as Row | undefined;
   return row ? mapSession(row) : null;
+}
+
+/**
+ * Transition a claimed session to running only if no user control update has
+ * committed since the execution captured its control version.
+ */
+export async function setDebateSessionRunningIfControlVersion(
+  sessionId: string,
+  controlVersion: number,
+): Promise<boolean> {
+  await ensureDatabase();
+  const result = getDb()
+    .prepare(
+      `UPDATE "DebateSession"
+       SET "status" = 'running', "updatedAt" = ?
+       WHERE "id" = ? AND "controlVersion" = ?
+         AND "status" NOT IN ('ended', 'stopped')`,
+    )
+    .run(now(), sessionId, controlVersion) as { changes: number };
+  return result.changes > 0;
 }
 
 function insertParticipant(sessionId: string, participant: ParticipantCreateInput) {
@@ -813,6 +920,9 @@ export const prisma = {
           getDb().prepare(`DELETE FROM "JudgeScore" WHERE "roundId" = ?`).run(String(round.id));
         }
         getDb().prepare(`DELETE FROM "ResearchSourceCard" WHERE "sessionId" = ?`).run(sessionId);
+        if (hasColumn("DebateRoundExecution", "sessionId")) {
+          getDb().prepare(`DELETE FROM "DebateRoundExecution" WHERE "sessionId" = ?`).run(sessionId);
+        }
         getDb().prepare(`DELETE FROM "DebateRound" WHERE "sessionId" = ?`).run(sessionId);
         getDb().prepare(`DELETE FROM "DebateParticipant" WHERE "sessionId" = ?`).run(sessionId);
       }
@@ -1036,8 +1146,8 @@ export const prisma = {
       const data = args.data;
       getDb()
         .prepare(
-          `INSERT INTO "DebateSession" ("id", "userId", "mode", "topic", "status", "maxRounds", "pauseEveryRounds", "lowScoreThreshold", "consecutiveLowLimit", "judgeConfidence", "outputMode", "currentRound", "winner", "createdAt", "updatedAt")
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO "DebateSession" ("id", "userId", "mode", "topic", "status", "maxRounds", "pauseEveryRounds", "lowScoreThreshold", "consecutiveLowLimit", "judgeConfidence", "outputMode", "currentRound", "controlVersion", "winner", "createdAt", "updatedAt")
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           sessionId,
@@ -1051,6 +1161,7 @@ export const prisma = {
           data.consecutiveLowLimit,
           data.judgeConfidence,
           data.outputMode,
+          0,
           0,
           null,
           createdAt,
@@ -1084,7 +1195,13 @@ export const prisma = {
       getDb()
         .prepare(
           `UPDATE "DebateSession"
-           SET "status" = ?, "winner" = ?, "maxRounds" = ?, "currentRound" = ?, "updatedAt" = ?
+           SET "status" = ?, "winner" = ?, "maxRounds" = ?, "currentRound" = ?,
+               "controlVersion" = CASE
+                 WHEN ? = 1 THEN "controlVersion" + 1
+                 WHEN ? IS NULL THEN "controlVersion"
+                 ELSE ?
+               END,
+               "updatedAt" = ?
            WHERE "id" = ?`,
         )
         .run(
@@ -1092,6 +1209,9 @@ export const prisma = {
           typeof args.data.winner === "undefined" ? current.winner : args.data.winner,
           args.data.maxRounds ?? current.maxRounds,
           args.data.currentRound ?? current.currentRound,
+          args.data.bumpControlVersion ? 1 : 0,
+          typeof args.data.controlVersion === "undefined" ? null : args.data.controlVersion,
+          args.data.controlVersion ?? current.controlVersion,
           updatedAt,
           args.where.id,
         );

@@ -895,6 +895,7 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
   const [isRoundRunning, setIsRoundRunning] = useState(false);
   const [isPending, startTransition] = useTransition();
   const lockRef = useRef(false);
+  const roundRequestRef = useRef<{ roundNumber: number; requestId: string } | null>(null);
 
   const totalTokens = useMemo(
     () =>
@@ -924,8 +925,17 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
     setError(null);
 
     try {
+      const targetRound = session.currentRound + 1;
+      if (roundRequestRef.current?.roundNumber !== targetRound) {
+        roundRequestRef.current = {
+          roundNumber: targetRound,
+          requestId: `round:${initialSession.id}:${targetRound}:${crypto.randomUUID()}`,
+        };
+      }
+      const requestId = roundRequestRef.current.requestId;
       const response = await secureFetch(`/api/debate/sessions/${initialSession.id}/stream`, {
         method: "POST",
+        headers: { "Idempotency-Key": requestId },
       });
       if (!response.ok || !response.body) {
         const payload = (await response.json()) as { error?: string };
@@ -952,6 +962,7 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
             summary?: string;
             inputTokens?: number;
             outputTokens?: number;
+            code?: string;
           };
           if (eventName === "speaker-a-start") setStreamMessage(data.message ?? "甲方席开始陈词。");
           if (eventName === "speaker-a-complete") setStreamMessage(`第 ${data.round ?? ""} 轮甲方陈词已落卷。`);
@@ -960,7 +971,10 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
           if (eventName === "usage-delta") {
             setStreamMessage(`用量估算：${data.inputTokens ?? 0} 输入 / ${data.outputTokens ?? 0} 输出令牌。`);
           }
-          if (eventName === "session" && data.session) setSession(data.session);
+          if (eventName === "session" && data.session) {
+            setSession(data.session);
+            if (data.session.currentRound >= targetRound) roundRequestRef.current = null;
+          }
           if (eventName === "done") setStreamMessage("本轮庭审已归档。");
           if (eventName === "error") throw new Error(data.error ?? "回合生成失败。");
         }
@@ -972,7 +986,7 @@ export function DebateRoom({ initialSession }: { initialSession: DebateSessionDT
       setIsRoundRunning(false);
       setStreamMessage(null);
     }
-  }, [initialSession.id]);
+  }, [initialSession.id, session.currentRound]);
 
   function transition(task: () => Promise<void>) {
     startTransition(() => {
