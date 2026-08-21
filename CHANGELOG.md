@@ -19,6 +19,6 @@ All notable changes to Debate Theater are documented here.
 
 ### Fixed
 
-- Prevented duplicate durable rounds and duplicate round-usage rows from concurrent tabs, app processes, and rolling legacy reconciliation; a provider response that races a process crash can still require provider-level idempotency.
+- Prevented duplicate durable rounds and duplicate `debate_round` usage rows from concurrent tabs, app processes, and rolling legacy reconciliation; unrelated usage event types remain independent, and a provider response that races a process crash can still require provider-level idempotency.
 - Prevented an expired lease owner from pausing a round already resumed by another process.
-- Preserved newer user pause/stop/winner controls during completion, reconciled complete legacy orphan rounds, and safely discarded incomplete legacy rounds without charging them.
+- Preserved newer user pause/stop/winner controls during completion, reconciled complete legacy orphan rounds, and safely discarded incomplete legacy rounds without charging them; an advanced partial session head is rolled back only when no later round exists.

@@ -277,7 +277,10 @@ model UsageEvent {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, eventType, createdAt])
-  @@unique([sessionId, roundNumber, eventType])
+  // SQLite runtime installs a partial unique index for debate_round charges;
+  // Prisma schema keeps this as a non-unique lookup index because it cannot
+  // express the eventType predicate.
+  @@index([sessionId, roundNumber, eventType])
 }
 
 model WaitlistLead {

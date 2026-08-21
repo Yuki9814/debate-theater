@@ -319,6 +319,30 @@ export class RoundExecutionStore {
    */
   private discardIncompleteRound(round: ExistingRound): void {
     if (round.completeScores) return;
+
+    const session = this.database
+      .prepare(`SELECT "currentRound", "status" FROM "DebateSession" WHERE "id" = ?`)
+      .get(round.sessionId) as Row | undefined;
+    if (!session) throw new Error("Cannot recover a partial round from a missing debate session");
+    const currentRound = Number(session.currentRound);
+    const higherRound = this.database
+      .prepare(
+        `SELECT 1
+         FROM "DebateRound"
+         WHERE "sessionId" = ? AND "roundNumber" > ?
+         UNION ALL
+         SELECT 1
+         FROM "DebateRoundExecution"
+         WHERE "sessionId" = ? AND "roundNumber" > ?
+         LIMIT 1`,
+      )
+      .get(round.sessionId, round.roundNumber, round.sessionId, round.roundNumber);
+    if (currentRound > round.roundNumber || higherRound) {
+      throw new Error(
+        `Cannot safely recover partial round ${round.roundNumber}: session progress already includes a later round`,
+      );
+    }
+
     this.database
       .prepare(
         `DELETE FROM "UsageEvent"
@@ -329,6 +353,40 @@ export class RoundExecutionStore {
     this.database
       .prepare(`DELETE FROM "DebateRound" WHERE "id" = ? AND "sessionId" = ? AND "roundNumber" = ?`)
       .run(round.id, round.sessionId, round.roundNumber);
+
+    if (currentRound === round.roundNumber) {
+      const isTerminal = session.status === "ended" || session.status === "stopped";
+      const result = this.database
+        .prepare(
+          `UPDATE "DebateSession"
+           SET "currentRound" = ?,
+               "status" = CASE WHEN ? = 1 THEN "status" ELSE 'paused' END,
+               "updatedAt" = ?
+           WHERE "id" = ? AND "currentRound" = ?`,
+        )
+        .run(round.roundNumber - 1, isTerminal ? 1 : 0, new Date().toISOString(), round.sessionId, currentRound) as {
+        changes: number;
+      };
+      if (result.changes === 0) {
+        throw new Error("Cannot safely recover partial round: session progress changed during recovery");
+      }
+    }
+  }
+
+  /**
+   * Repair a partial round at the session head before the engine computes its
+   * next round. This keeps a legacy worker's early currentRound update from
+   * causing the engine to skip the damaged round.
+   */
+  repairSessionHead(sessionId: string): boolean {
+    return this.transaction(() => {
+      const session = this.findSession(sessionId);
+      if (!session || session.currentRound < 1) return false;
+      const head = this.findExistingRound(sessionId, session.currentRound);
+      if (!head || head.completeScores) return false;
+      this.discardIncompleteRound(head);
+      return true;
+    });
   }
 
   private leaseIsActive(execution: RoundExecution, nowMs: number): boolean {

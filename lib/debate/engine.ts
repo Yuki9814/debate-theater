@@ -502,7 +502,7 @@ export async function runNextRoundExecution(
   await ensureDatabase();
   const requestId = options.requestId ?? randomUUID();
   const store = roundExecutionStore();
-  const session = await prisma.debateSession.findUnique({
+  let session = await prisma.debateSession.findUnique({
     where: { id: sessionId },
     include: sessionInclude,
   });
@@ -517,6 +517,18 @@ export async function runNextRoundExecution(
   if (replay?.status === "completed" && replay.roundId) {
     const fresh = await getSession(sessionId, userId);
     return withExecutionMetadata(fresh ?? serializeSession(session), replay);
+  }
+
+  // A legacy worker could advance currentRound immediately after inserting a
+  // partial head round. Repair that head before deriving currentRound + 1, or
+  // this request would skip the damaged round and start a new one.
+  if (store.repairSessionHead(sessionId)) {
+    const repaired = await prisma.debateSession.findUnique({
+      where: { id: sessionId },
+      include: sessionInclude,
+    });
+    if (!repaired) throw new Error("辩场在遗留回合恢复期间消失。");
+    session = repaired;
   }
   if (session.status === "ended" || session.status === "stopped") {
     return withExecutionMetadata(serializeSession(session));

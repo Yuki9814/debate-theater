@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { ensureDatabase } from "./prisma.ts";
-import { RoundExecutionStore } from "./round-executions.ts";
+import { RoundExecutionStore, roundExecutionStore } from "./round-executions.ts";
+import { runNextRoundExecution } from "../debate/engine.ts";
 import type { JudgeResult } from "../debate/types.ts";
 
 const directory = mkdtempSync(join(tmpdir(), "debate-round-executions-"));
@@ -14,6 +15,7 @@ process.env.DATABASE_URL = `file:${databasePath}`;
 
 let first: RoundExecutionStore;
 let second: RoundExecutionStore;
+let defaultStoreCreated = false;
 
 const usage = { inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.001 };
 const judgeResult: JudgeResult = {
@@ -82,6 +84,16 @@ function insertLegacyUsage(store: RoundExecutionStore, userId: string, sessionId
     .run(randomUUID(), userId, sessionId, roundNumber, new Date().toISOString());
 }
 
+function insertOtherUsage(store: RoundExecutionStore, userId: string, sessionId: string, roundNumber: number): void {
+  store.database
+    .prepare(
+      `INSERT INTO "UsageEvent"
+        ("id", "userId", "sessionId", "providerId", "eventType", "roundNumber", "inputTokens", "outputTokens", "estimatedCostUsd", "createdAt")
+       VALUES (?, ?, ?, 'other', 'other', ?, 1, 1, 0, ?)`,
+    )
+    .run(randomUUID(), userId, sessionId, roundNumber, new Date().toISOString());
+}
+
 before(async () => {
   await ensureDatabase();
   first = new RoundExecutionStore(databasePath);
@@ -91,6 +103,7 @@ before(async () => {
 after(() => {
   first.close();
   second.close();
+  if (defaultStoreCreated) roundExecutionStore().close();
   rmSync(directory, { recursive: true, force: true });
 });
 
@@ -535,6 +548,8 @@ describe("database-backed round execution", () => {
     const newFirstUserId = randomUUID();
     seedSession(first, newFirstSessionId, newFirstUserId);
     const newFirstRoundId = insertLegacyRound(first, newFirstSessionId, 1, 2);
+    insertOtherUsage(first, newFirstUserId, newFirstSessionId, 1);
+    insertOtherUsage(first, newFirstUserId, newFirstSessionId, 1);
     const newFirstReconciled = first.claim({
       sessionId: newFirstSessionId,
       roundNumber: 1,
@@ -553,6 +568,13 @@ describe("database-backed round execution", () => {
       )
       .get(newFirstSessionId) as { count: number };
     assert.equal(usageCount.count, 1);
+    const otherUsageCount = first.database
+      .prepare(
+        `SELECT COUNT(*) AS count FROM "UsageEvent"
+         WHERE "sessionId" = ? AND "roundNumber" = 1 AND "eventType" = 'other'`,
+      )
+      .get(newFirstSessionId) as { count: number };
+    assert.equal(otherUsageCount.count, 2);
   });
 
   it("discards zero- and one-score legacy rounds before claiming durable completion", () => {
@@ -655,6 +677,129 @@ describe("database-backed round execution", () => {
       assert.equal(durableCounts.rounds, 1);
       assert.equal(durableCounts.scores, 2);
       assert.equal(durableCounts.usage, 1);
+    }
+  });
+
+  it("rewinds an advanced partial head before durable completion", () => {
+    for (const scoreCount of [0, 1] as const) {
+      const sessionId = randomUUID();
+      const userId = randomUUID();
+      seedSession(first, sessionId, userId);
+      insertLegacyRound(first, sessionId, 1, scoreCount);
+      first.database
+        .prepare(
+          `UPDATE "DebateSession"
+           SET "currentRound" = 1, "status" = 'running', "winner" = 'operator choice'
+           WHERE "id" = ?`,
+        )
+        .run(sessionId);
+
+      const claim = first.claim({
+        sessionId,
+        roundNumber: 1,
+        requestId: `request:advanced-head-${scoreCount}`,
+        userId,
+        providerId: "mock",
+      });
+      assert.equal(claim.outcome, "claimed");
+      assert.equal(
+        (first.database.prepare(`SELECT "currentRound" FROM "DebateSession" WHERE "id" = ?`).get(sessionId) as { currentRound: number })
+          .currentRound,
+        0,
+      );
+      assert.equal(
+        (first.database.prepare(`SELECT "status" FROM "DebateSession" WHERE "id" = ?`).get(sessionId) as { status: string }).status,
+        "paused",
+      );
+      assert.equal(
+        (first.database.prepare(`SELECT "winner" FROM "DebateSession" WHERE "id" = ?`).get(sessionId) as { winner: string }).winner,
+        "operator choice",
+      );
+
+      const ownerToken = claim.ownerToken as string;
+      first.checkpoint({
+        executionId: claim.execution.id,
+        ownerToken,
+        stage: "speaker_a_completed",
+        speakerAContent: "A",
+        speakerAUsage: usage,
+      });
+      first.checkpoint({
+        executionId: claim.execution.id,
+        ownerToken,
+        stage: "speaker_b_completed",
+        speakerBContent: "B",
+        speakerBUsage: usage,
+      });
+      first.checkpoint({
+        executionId: claim.execution.id,
+        ownerToken,
+        stage: "judge_completed",
+        judgeResult,
+        judgeUsage: usage,
+      });
+      const completed = first.complete({
+        executionId: claim.execution.id,
+        ownerToken,
+        userId,
+        providerId: "mock",
+        sessionStatus: "running",
+        winner: null,
+        speakerAContent: "A",
+        speakerBContent: "B",
+        judgeResult,
+        usage,
+      });
+
+      const counts = first.database
+        .prepare(
+          `SELECT
+             (SELECT "currentRound" FROM "DebateSession" WHERE "id" = ?) AS currentRound,
+             (SELECT COUNT(*) FROM "DebateRound" WHERE "sessionId" = ?) AS rounds,
+             (SELECT COUNT(*) FROM "JudgeScore" WHERE "roundId" = ?) AS scores,
+             (SELECT COUNT(*) FROM "UsageEvent" WHERE "sessionId" = ? AND "roundNumber" = 1 AND "eventType" = 'debate_round') AS usage`,
+        )
+        .get(sessionId, sessionId, completed.roundId, sessionId) as {
+        currentRound: number;
+        rounds: number;
+        scores: number;
+        usage: number;
+      };
+      assert.equal(counts.currentRound, 1);
+      assert.equal(counts.rounds, 1);
+      assert.equal(counts.scores, 2);
+      assert.equal(counts.usage, 1);
+    }
+  });
+
+  it("fails closed when a partial round conflicts with later session progress", () => {
+    for (const withHigherRound of [false, true]) {
+      const sessionId = randomUUID();
+      const userId = randomUUID();
+      seedSession(first, sessionId, userId);
+      insertLegacyRound(first, sessionId, 1, 0);
+      if (withHigherRound) insertLegacyRound(first, sessionId, 2, 2);
+      first.database
+        .prepare(`UPDATE "DebateSession" SET "currentRound" = ?, "status" = 'running' WHERE "id" = ?`)
+        .run(withHigherRound ? 1 : 2, sessionId);
+
+      assert.throws(
+        () =>
+          first.claim({
+            sessionId,
+            roundNumber: 1,
+            requestId: `request:partial-conflict-${withHigherRound ? "higher" : "ahead"}`,
+          }),
+        /Cannot safely recover partial round 1/,
+      );
+      const roundCount = first.database
+        .prepare(`SELECT COUNT(*) AS count FROM "DebateRound" WHERE "sessionId" = ?`)
+        .get(sessionId) as { count: number };
+      assert.equal(roundCount.count, withHigherRound ? 2 : 1);
+      const session = first.database
+        .prepare(`SELECT "currentRound" FROM "DebateSession" WHERE "id" = ?`)
+        .get(sessionId) as { currentRound: number };
+      assert.equal(session.currentRound, withHigherRound ? 1 : 2);
     }
   });
 
@@ -768,5 +913,54 @@ describe("database-backed round execution", () => {
     });
     assert.equal(replay.outcome, "completed");
     assert.equal(replay.execution.roundId, firstRound.roundId);
+  });
+
+  it("repairs an advanced partial head before the mock engine computes its next round", async () => {
+    const sessionId = randomUUID();
+    const userId = randomUUID();
+    seedSession(first, sessionId, userId);
+    insertLegacyRound(first, sessionId, 1, 0);
+    first.database
+      .prepare(`UPDATE "DebateSession" SET "currentRound" = 1, "status" = 'running' WHERE "id" = ?`)
+      .run(sessionId);
+    for (const [side, stance] of [
+      ["A", "主张推进"],
+      ["B", "主张限制"],
+      ["Judge", "中立裁判"],
+    ] as const) {
+      first.database
+        .prepare(
+          `INSERT INTO "DebateParticipant"
+            ("id", "sessionId", "side", "stance", "personaId", "modelProviderId", "modelName", "systemPrompt")
+           VALUES (?, ?, ?, ?, NULL, 'mock', NULL, ?)`,
+        )
+        .run(randomUUID(), sessionId, side, stance, `${side} system prompt`);
+    }
+
+    defaultStoreCreated = true;
+    const result = await runNextRoundExecution(sessionId, userId, { requestId: "request:engine-head-repair" });
+    assert.equal(result.roundNumber, 1);
+    assert.ok(result.roundId);
+    assert.equal(result.session.currentRound, 1);
+    assert.equal(result.session.rounds.length, 1);
+
+    const counts = first.database
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM "DebateRound" WHERE "sessionId" = ?) AS rounds,
+           (SELECT COUNT(*) FROM "DebateRound" WHERE "sessionId" = ? AND "roundNumber" = 2) AS roundTwo,
+           (SELECT COUNT(*) FROM "JudgeScore" WHERE "roundId" = ?) AS scores,
+           (SELECT COUNT(*) FROM "UsageEvent" WHERE "sessionId" = ? AND "eventType" = 'debate_round') AS usage`,
+      )
+      .get(sessionId, sessionId, result.roundId, sessionId) as {
+      rounds: number;
+      roundTwo: number;
+      scores: number;
+      usage: number;
+    };
+    assert.equal(counts.rounds, 1);
+    assert.equal(counts.roundTwo, 0);
+    assert.equal(counts.scores, 2);
+    assert.equal(counts.usage, 1);
   });
 });

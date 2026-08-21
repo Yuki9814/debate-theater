@@ -765,21 +765,24 @@ export async function ensureDatabase() {
 
   // v0.1 could race a reconciliation worker and write the same round usage
   // more than once. Keep the deterministic oldest row before installing the
-  // database guard required by all subsequent runtimes.
+  // database guard required by all subsequent runtimes. Non-round usage is
+  // deliberately left untouched: only debate-round charges are unique per
+  // session and round.
   database.exec(`
     BEGIN IMMEDIATE;
     DELETE FROM "UsageEvent"
     WHERE rowid IN (
       SELECT duplicate.rowid
       FROM "UsageEvent" AS duplicate
-      WHERE duplicate."sessionId" IS NOT NULL
+      WHERE duplicate."eventType" = 'debate_round'
+        AND duplicate."sessionId" IS NOT NULL
         AND duplicate."roundNumber" IS NOT NULL
         AND EXISTS (
           SELECT 1
           FROM "UsageEvent" AS earlier
-          WHERE earlier."sessionId" = duplicate."sessionId"
+          WHERE earlier."eventType" = 'debate_round'
+            AND earlier."sessionId" = duplicate."sessionId"
             AND earlier."roundNumber" = duplicate."roundNumber"
-            AND earlier."eventType" = duplicate."eventType"
             AND (
               earlier."createdAt" < duplicate."createdAt"
               OR (
@@ -789,8 +792,11 @@ export async function ensureDatabase() {
             )
         )
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS "UsageEvent_session_round_type_unique_idx"
-      ON "UsageEvent" ("sessionId", "roundNumber", "eventType");
+    DROP INDEX IF EXISTS "UsageEvent_session_round_type_unique_idx";
+    DROP INDEX IF EXISTS "UsageEvent_sessionId_roundNumber_eventType_key";
+    CREATE UNIQUE INDEX IF NOT EXISTS "UsageEvent_debate_round_session_round_unique_idx"
+      ON "UsageEvent" ("sessionId", "roundNumber")
+      WHERE "eventType" = 'debate_round';
     CREATE TRIGGER IF NOT EXISTS "UsageEvent_debate_round_requires_complete_round"
     BEFORE INSERT ON "UsageEvent"
     WHEN NEW."eventType" = 'debate_round'
