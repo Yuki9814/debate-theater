@@ -81,6 +81,7 @@ type ExistingRound = {
   outputTokens: number;
   estimatedCostUsd: number;
   createdAt: string;
+  completeScores: boolean;
 };
 
 const DEFAULT_LEASE_MS = 15 * 60 * 1000;
@@ -197,6 +198,8 @@ export class RoundExecutionStore {
         ON "DebateRoundExecution" ("status", "leaseExpiresAt");
       CREATE INDEX IF NOT EXISTS "DebateRoundRequest_execution_idx"
         ON "DebateRoundRequest" ("executionId");
+      CREATE INDEX IF NOT EXISTS "DebateRoundExecution_roundId_idx"
+        ON "DebateRoundExecution" ("roundId");
     `);
     this.ensureColumn("DebateRoundExecution", "controlVersion", "INTEGER NOT NULL DEFAULT 0");
     if (this.hasColumn("DebateSession", "id")) {
@@ -281,7 +284,10 @@ export class RoundExecutionStore {
       .prepare(
         `SELECT "id", "sessionId", "roundNumber", "speakerAContent", "speakerBContent",
                 "judgeSummary", "judgeComment", "confidence", "inputTokens",
-                "outputTokens", "estimatedCostUsd", "createdAt"
+                "outputTokens", "estimatedCostUsd", "createdAt",
+                (SELECT COUNT(*) FROM "JudgeScore" WHERE "roundId" = "DebateRound"."id") AS "scoreCount",
+                (SELECT COUNT(*) FROM "JudgeScore" WHERE "roundId" = "DebateRound"."id" AND "side" = 'A') AS "scoreACount",
+                (SELECT COUNT(*) FROM "JudgeScore" WHERE "roundId" = "DebateRound"."id" AND "side" = 'B') AS "scoreBCount"
          FROM "DebateRound" WHERE "sessionId" = ? AND "roundNumber" = ?`,
       )
       .get(sessionId, roundNumber) as Row | undefined;
@@ -299,7 +305,30 @@ export class RoundExecutionStore {
       outputTokens: Number(row.outputTokens ?? 0),
       estimatedCostUsd: Number(row.estimatedCostUsd ?? 0),
       createdAt: String(row.createdAt),
+      completeScores:
+        Number(row.scoreCount ?? 0) === 2 &&
+        Number(row.scoreACount ?? 0) === 1 &&
+        Number(row.scoreBCount ?? 0) === 1,
     };
+  }
+
+  /**
+   * Remove a round left halfway through the v0.1 write sequence. The caller
+   * owns the BEGIN IMMEDIATE transaction, so a new worker cannot observe a
+   * second partial state while this repair is in progress.
+   */
+  private discardIncompleteRound(round: ExistingRound): void {
+    if (round.completeScores) return;
+    this.database
+      .prepare(
+        `DELETE FROM "UsageEvent"
+         WHERE "sessionId" = ? AND "roundNumber" = ? AND "eventType" = 'debate_round'`,
+      )
+      .run(round.sessionId, round.roundNumber);
+    this.database.prepare(`DELETE FROM "JudgeScore" WHERE "roundId" = ?`).run(round.id);
+    this.database
+      .prepare(`DELETE FROM "DebateRound" WHERE "id" = ? AND "sessionId" = ? AND "roundNumber" = ?`)
+      .run(round.id, round.sessionId, round.roundNumber);
   }
 
   private leaseIsActive(execution: RoundExecution, nowMs: number): boolean {
@@ -325,19 +354,18 @@ export class RoundExecutionStore {
     now: string;
   }): { roundId: string; completedAt: string } {
     const { execution, round, session, now } = input;
+    if (!round.completeScores) {
+      throw new Error("Cannot reconcile a debate round without exactly one A and one B judge score");
+    }
     if (execution.roundId && execution.roundId !== round.id) {
       throw new Error("Round execution is bound to a different round");
     }
 
     this.database
       .prepare(
-        `INSERT INTO "UsageEvent"
+        `INSERT OR IGNORE INTO "UsageEvent"
           ("id", "userId", "sessionId", "providerId", "eventType", "roundNumber", "inputTokens", "outputTokens", "estimatedCostUsd", "createdAt")
-         SELECT ?, ?, ?, ?, 'debate_round', ?, ?, ?, ?, ?
-         WHERE NOT EXISTS (
-           SELECT 1 FROM "UsageEvent"
-           WHERE "sessionId" = ? AND "roundNumber" = ? AND "eventType" = 'debate_round'
-         )`,
+         VALUES (?, ?, ?, ?, 'debate_round', ?, ?, ?, ?, ?)`,
       )
       .run(
         randomUUID(),
@@ -349,8 +377,6 @@ export class RoundExecutionStore {
         round.outputTokens,
         round.estimatedCostUsd,
         now,
-        execution.sessionId,
-        round.roundNumber,
       );
 
     const shouldAdvance = session.currentRound < round.roundNumber;
@@ -411,7 +437,33 @@ export class RoundExecutionStore {
         this.findByRequest(input.sessionId, input.requestId) ??
         this.findByRound(input.sessionId, input.roundNumber);
 
-      const existingRound = this.findExistingRound(input.sessionId, input.roundNumber);
+      let existingRound = this.findExistingRound(input.sessionId, input.roundNumber);
+      if (existingRound && !existingRound.completeScores) {
+        this.discardIncompleteRound(existingRound);
+        // A rare rolling-deploy crash can leave a completed execution bound
+        // to the now-discarded partial round. Turn it back into a durable
+        // claim so this request follows the normal completion path.
+        if (execution?.status === "completed") {
+          this.database
+            .prepare(
+              `UPDATE "DebateRoundExecution"
+               SET "status" = 'claimed', "roundId" = NULL, "controlVersion" = ?,
+                   "leaseOwner" = ?, "leaseExpiresAt" = ?, "completedAt" = NULL,
+                   "errorCode" = NULL, "errorMessage" = NULL, "updatedAt" = ?
+               WHERE "id" = ? AND ("roundId" IS NULL OR "roundId" = ?)`,
+            )
+            .run(
+              session.controlVersion,
+              ownerToken,
+              leaseExpiresAt,
+              now,
+              execution.id,
+              existingRound.id,
+            );
+          execution = this.findById(execution.id);
+        }
+        existingRound = null;
+      }
 
       if (!execution) {
         if (existingRound) {
@@ -572,13 +624,15 @@ export class RoundExecutionStore {
 
   fail(input: { executionId: string; ownerToken: string; errorCode: string; errorMessage: string }): void {
     this.transaction(() => {
-      const now = new Date(this.clock()).toISOString();
+      const nowMs = this.clock();
+      const now = new Date(nowMs).toISOString();
       const result = this.database
         .prepare(
           `UPDATE "DebateRoundExecution"
            SET "status" = 'failed', "leaseOwner" = NULL, "leaseExpiresAt" = NULL,
                "errorCode" = ?, "errorMessage" = ?, "updatedAt" = ?
-           WHERE "id" = ? AND "leaseOwner" = ? AND "status" != 'completed'`,
+           WHERE "id" = ? AND "leaseOwner" = ? AND "status" != 'completed'
+             AND "leaseExpiresAt" IS NOT NULL AND "leaseExpiresAt" > ?`,
         )
         .run(
           input.errorCode.slice(0, 80),
@@ -586,6 +640,7 @@ export class RoundExecutionStore {
           now,
           input.executionId,
           input.ownerToken,
+          now,
         ) as { changes: number };
 
       // A lease may have expired and been acquired by another process while the
@@ -610,7 +665,7 @@ export class RoundExecutionStore {
     return this.transaction(() => {
       const nowMs = this.clock();
       const now = new Date(nowMs).toISOString();
-      const execution = this.findById(input.executionId);
+      let execution = this.findById(input.executionId);
       if (!execution) throw new Error("Round execution does not exist");
 
       const session = this.findSession(execution.sessionId);
@@ -622,14 +677,19 @@ export class RoundExecutionStore {
       // execution left active by a rolling deployment.
       const existingRound = this.findExistingRound(execution.sessionId, execution.roundNumber);
       if (existingRound) {
-        return this.reconcileExistingRound({
-          execution,
-          round: existingRound,
-          session,
-          userId: input.userId,
-          providerId: input.providerId,
-          now,
-        });
+        if (existingRound.completeScores) {
+          return this.reconcileExistingRound({
+            execution,
+            round: existingRound,
+            session,
+            userId: input.userId,
+            providerId: input.providerId,
+            now,
+          });
+        }
+        this.discardIncompleteRound(existingRound);
+        execution = this.findById(input.executionId);
+        if (!execution) throw new Error("Round execution disappeared while recovering a partial round");
       }
 
       if (execution.status === "completed" && execution.roundId && execution.completedAt) {
@@ -695,13 +755,9 @@ export class RoundExecutionStore {
 
       this.database
         .prepare(
-          `INSERT INTO "UsageEvent"
+          `INSERT OR IGNORE INTO "UsageEvent"
             ("id", "userId", "sessionId", "providerId", "eventType", "roundNumber", "inputTokens", "outputTokens", "estimatedCostUsd", "createdAt")
-           SELECT ?, ?, ?, ?, 'debate_round', ?, ?, ?, ?, ?
-           WHERE NOT EXISTS (
-             SELECT 1 FROM "UsageEvent"
-             WHERE "sessionId" = ? AND "roundNumber" = ? AND "eventType" = 'debate_round'
-           )`,
+           VALUES (?, ?, ?, ?, 'debate_round', ?, ?, ?, ?, ?)`,
         )
         .run(
           randomUUID(),
@@ -713,8 +769,6 @@ export class RoundExecutionStore {
           input.usage.outputTokens,
           input.usage.estimatedCostUsd,
           now,
-          execution.sessionId,
-          execution.roundNumber,
         );
 
       const controlUnchanged = session.controlVersion === execution.controlVersion;

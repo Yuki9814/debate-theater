@@ -277,6 +277,7 @@ model UsageEvent {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, eventType, createdAt])
+  @@unique([sessionId, roundNumber, eventType])
 }
 
 model WaitlistLead {

@@ -43,6 +43,45 @@ function seedSession(store: RoundExecutionStore, sessionId: string, userId: stri
     .run(sessionId, userId, now, now);
 }
 
+function insertLegacyRound(
+  store: RoundExecutionStore,
+  sessionId: string,
+  roundNumber: number,
+  scoreCount: 0 | 1 | 2,
+): string {
+  const roundId = randomUUID();
+  const now = new Date().toISOString();
+  store.database
+    .prepare(
+      `INSERT INTO "DebateRound"
+        ("id", "sessionId", "roundNumber", "speakerAContent", "speakerBContent", "judgeSummary", "judgeComment", "confidence", "inputTokens", "outputTokens", "estimatedCostUsd", "createdAt")
+       VALUES (?, ?, ?, 'legacy A', 'legacy B', 'legacy summary', 'legacy comment', 0.8, 11, 7, 0.002, ?)`,
+    )
+    .run(roundId, sessionId, roundNumber, now);
+
+  const sides = scoreCount === 2 ? (["A", "B"] as const) : scoreCount === 1 ? (["A"] as const) : [];
+  for (const side of sides) {
+    store.database
+      .prepare(
+        `INSERT INTO "JudgeScore"
+          ("id", "roundId", "side", "logic", "evidence", "rebuttal", "clarity", "personaFidelity", "total", "comment")
+         VALUES (?, ?, ?, 18, 17, 16, 15, 14, 80, 'legacy score')`,
+      )
+      .run(randomUUID(), roundId, side);
+  }
+  return roundId;
+}
+
+function insertLegacyUsage(store: RoundExecutionStore, userId: string, sessionId: string, roundNumber: number): void {
+  store.database
+    .prepare(
+      `INSERT INTO "UsageEvent"
+        ("id", "userId", "sessionId", "providerId", "eventType", "roundNumber", "inputTokens", "outputTokens", "estimatedCostUsd", "createdAt")
+       VALUES (?, ?, ?, 'legacy', 'debate_round', ?, 11, 7, 0.002, ?)`,
+    )
+    .run(randomUUID(), userId, sessionId, roundNumber, new Date().toISOString());
+}
+
 before(async () => {
   await ensureDatabase();
   first = new RoundExecutionStore(databasePath);
@@ -359,6 +398,33 @@ describe("database-backed round execution", () => {
     }
   });
 
+  it("does not mark an execution failed after its lease has expired", () => {
+    let now = Date.parse("2026-08-21T13:30:00.000Z");
+    const expiring = new RoundExecutionStore(databasePath, { clock: () => now, leaseMs: 1_000 });
+    try {
+      const sessionId = randomUUID();
+      const userId = randomUUID();
+      seedSession(expiring, sessionId, userId);
+      const claim = expiring.claim({ sessionId, roundNumber: 1, requestId: "request:expired-fail" });
+      const ownerToken = claim.ownerToken as string;
+      now += 1_001;
+
+      expiring.fail({
+        executionId: claim.execution.id,
+        ownerToken,
+        errorCode: "STALE_PROVIDER_RESPONSE",
+        errorMessage: "the lease is already expired",
+      });
+
+      const execution = expiring.getByRequest(sessionId, "request:expired-fail");
+      assert.equal(execution?.status, "claimed");
+      assert.equal(execution?.leaseOwner, ownerToken);
+      assert.equal(execution?.errorCode, null);
+    } finally {
+      expiring.close();
+    }
+  });
+
   it("preserves a newer user stop and forced winner while completion only advances accounting", () => {
     const sessionId = randomUUID();
     const userId = randomUUID();
@@ -448,6 +514,150 @@ describe("database-backed round execution", () => {
     assert.equal(checkpoint.speakerAContent, "recovered A");
   });
 
+  it("keeps rolling old and new usage writers at one event per session round", () => {
+    const oldFirstSessionId = randomUUID();
+    const oldFirstUserId = randomUUID();
+    seedSession(first, oldFirstSessionId, oldFirstUserId);
+    const oldFirstRoundId = insertLegacyRound(first, oldFirstSessionId, 1, 2);
+    insertLegacyUsage(first, oldFirstUserId, oldFirstSessionId, 1);
+
+    const oldFirstReconciled = second.claim({
+      sessionId: oldFirstSessionId,
+      roundNumber: 1,
+      requestId: "request:old-writer-first",
+      userId: oldFirstUserId,
+      providerId: "mock",
+    });
+    assert.equal(oldFirstReconciled.outcome, "completed");
+    assert.equal(oldFirstReconciled.execution.roundId, oldFirstRoundId);
+
+    const newFirstSessionId = randomUUID();
+    const newFirstUserId = randomUUID();
+    seedSession(first, newFirstSessionId, newFirstUserId);
+    const newFirstRoundId = insertLegacyRound(first, newFirstSessionId, 1, 2);
+    const newFirstReconciled = first.claim({
+      sessionId: newFirstSessionId,
+      roundNumber: 1,
+      requestId: "request:new-writer-first",
+      userId: newFirstUserId,
+      providerId: "mock",
+    });
+    assert.equal(newFirstReconciled.outcome, "completed");
+    assert.equal(newFirstReconciled.execution.roundId, newFirstRoundId);
+
+    assert.throws(() => insertLegacyUsage(second, newFirstUserId, newFirstSessionId, 1));
+    const usageCount = first.database
+      .prepare(
+        `SELECT COUNT(*) AS count FROM "UsageEvent"
+         WHERE "sessionId" = ? AND "roundNumber" = 1 AND "eventType" = 'debate_round'`,
+      )
+      .get(newFirstSessionId) as { count: number };
+    assert.equal(usageCount.count, 1);
+  });
+
+  it("discards zero- and one-score legacy rounds before claiming durable completion", () => {
+    const cases = [
+      { label: "zero-score", scoreCount: 0 as const, expectOutcome: "claimed" as const },
+      { label: "one-score", scoreCount: 1 as const, expectOutcome: "resumed" as const },
+    ];
+
+    for (const testCase of cases) {
+      const sessionId = randomUUID();
+      const userId = randomUUID();
+      seedSession(first, sessionId, userId);
+      if (testCase.scoreCount === 1) {
+        const failed = first.claim({
+          sessionId,
+          roundNumber: 1,
+          requestId: `request:${testCase.label}-old-execution`,
+        });
+        first.fail({
+          executionId: failed.execution.id,
+          ownerToken: failed.ownerToken as string,
+          errorCode: "LEGACY_WORKER_CRASH",
+          errorMessage: "old worker left a partial round",
+        });
+      }
+
+      insertLegacyRound(first, sessionId, 1, testCase.scoreCount);
+      const claim = second.claim({
+        sessionId,
+        roundNumber: 1,
+        requestId: `request:${testCase.label}-recovery`,
+        userId,
+        providerId: "mock",
+      });
+      assert.equal(claim.outcome, testCase.expectOutcome);
+      assert.equal(claim.execution.roundId, null);
+
+      const partialRoundCount = first.database
+        .prepare(`SELECT COUNT(*) AS count FROM "DebateRound" WHERE "sessionId" = ?`)
+        .get(sessionId) as { count: number };
+      const partialScoreCount = first.database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM "JudgeScore"
+           WHERE "roundId" IN (SELECT "id" FROM "DebateRound" WHERE "sessionId" = ?)`,
+        )
+        .get(sessionId) as { count: number };
+      const partialUsageCount = first.database
+        .prepare(`SELECT COUNT(*) AS count FROM "UsageEvent" WHERE "sessionId" = ? AND "roundNumber" = 1`)
+        .get(sessionId) as { count: number };
+      assert.equal(partialRoundCount.count, 0);
+      assert.equal(partialScoreCount.count, 0);
+      assert.equal(partialUsageCount.count, 0);
+
+      assert.throws(() => insertLegacyUsage(first, userId, sessionId, 1));
+
+      const ownerToken = claim.ownerToken as string;
+      first.checkpoint({
+        executionId: claim.execution.id,
+        ownerToken,
+        stage: "speaker_a_completed",
+        speakerAContent: "A",
+        speakerAUsage: usage,
+      });
+      first.checkpoint({
+        executionId: claim.execution.id,
+        ownerToken,
+        stage: "speaker_b_completed",
+        speakerBContent: "B",
+        speakerBUsage: usage,
+      });
+      first.checkpoint({
+        executionId: claim.execution.id,
+        ownerToken,
+        stage: "judge_completed",
+        judgeResult,
+        judgeUsage: usage,
+      });
+      const completed = first.complete({
+        executionId: claim.execution.id,
+        ownerToken,
+        userId,
+        providerId: "mock",
+        sessionStatus: "running",
+        winner: null,
+        speakerAContent: "A",
+        speakerBContent: "B",
+        judgeResult,
+        usage,
+      });
+      assert.ok(completed.roundId);
+
+      const durableCounts = first.database
+        .prepare(
+          `SELECT
+             (SELECT COUNT(*) FROM "DebateRound" WHERE "sessionId" = ?) AS rounds,
+             (SELECT COUNT(*) FROM "JudgeScore" WHERE "roundId" = ?) AS scores,
+             (SELECT COUNT(*) FROM "UsageEvent" WHERE "sessionId" = ? AND "roundNumber" = 1) AS usage`,
+        )
+        .get(sessionId, completed.roundId, sessionId) as { rounds: number; scores: number; usage: number };
+      assert.equal(durableCounts.rounds, 1);
+      assert.equal(durableCounts.scores, 2);
+      assert.equal(durableCounts.usage, 1);
+    }
+  });
+
   it("reconciles a legacy orphan round exactly once and pauses non-terminal sessions", () => {
     const sessionId = randomUUID();
     const userId = randomUUID();
@@ -461,6 +671,15 @@ describe("database-backed round execution", () => {
          VALUES (?, ?, 1, 'legacy A', 'legacy B', 'legacy summary', 'legacy comment', 0.8, 11, 7, 0.002, ?)`,
       )
       .run(roundId, sessionId, now);
+    for (const side of ["A", "B"] as const) {
+      first.database
+        .prepare(
+          `INSERT INTO "JudgeScore"
+            ("id", "roundId", "side", "logic", "evidence", "rebuttal", "clarity", "personaFidelity", "total", "comment")
+           VALUES (?, ?, ?, 18, 17, 16, 15, 14, 80, 'legacy score')`,
+        )
+        .run(randomUUID(), roundId, side);
+    }
 
     const reconciled = first.claim({
       sessionId,

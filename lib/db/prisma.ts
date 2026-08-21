@@ -762,6 +762,65 @@ export async function ensureDatabase() {
   ensureColumn("DebateRound", "outputTokens", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("DebateRound", "estimatedCostUsd", "REAL NOT NULL DEFAULT 0");
   ensureColumn("DebateSession", "controlVersion", "INTEGER NOT NULL DEFAULT 0");
+
+  // v0.1 could race a reconciliation worker and write the same round usage
+  // more than once. Keep the deterministic oldest row before installing the
+  // database guard required by all subsequent runtimes.
+  database.exec(`
+    BEGIN IMMEDIATE;
+    DELETE FROM "UsageEvent"
+    WHERE rowid IN (
+      SELECT duplicate.rowid
+      FROM "UsageEvent" AS duplicate
+      WHERE duplicate."sessionId" IS NOT NULL
+        AND duplicate."roundNumber" IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM "UsageEvent" AS earlier
+          WHERE earlier."sessionId" = duplicate."sessionId"
+            AND earlier."roundNumber" = duplicate."roundNumber"
+            AND earlier."eventType" = duplicate."eventType"
+            AND (
+              earlier."createdAt" < duplicate."createdAt"
+              OR (
+                earlier."createdAt" = duplicate."createdAt"
+                AND earlier.rowid < duplicate.rowid
+              )
+            )
+        )
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS "UsageEvent_session_round_type_unique_idx"
+      ON "UsageEvent" ("sessionId", "roundNumber", "eventType");
+    CREATE TRIGGER IF NOT EXISTS "UsageEvent_debate_round_requires_complete_round"
+    BEFORE INSERT ON "UsageEvent"
+    WHEN NEW."eventType" = 'debate_round'
+      AND (
+        NEW."sessionId" IS NULL
+        OR NEW."roundNumber" IS NULL
+        OR NOT EXISTS (
+          SELECT 1
+          FROM "DebateRound" AS round
+          WHERE round."sessionId" = NEW."sessionId"
+            AND round."roundNumber" = NEW."roundNumber"
+            AND (
+              SELECT COUNT(*) FROM "JudgeScore" AS score
+              WHERE score."roundId" = round."id"
+            ) = 2
+            AND (
+              SELECT COUNT(*) FROM "JudgeScore" AS score
+              WHERE score."roundId" = round."id" AND score."side" = 'A'
+            ) = 1
+            AND (
+              SELECT COUNT(*) FROM "JudgeScore" AS score
+              WHERE score."roundId" = round."id" AND score."side" = 'B'
+            ) = 1
+        )
+      )
+    BEGIN
+      SELECT RAISE(ABORT, 'debate round usage requires complete judge scores');
+    END;
+    COMMIT;
+  `);
   schemaReady = true;
 }
 
